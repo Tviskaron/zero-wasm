@@ -56,6 +56,26 @@ h1 span { font-weight: 400; color: var(--ink-2); }
 canvas { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
 .stage-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; background: var(--stage); color: #e6ebe0; }
 .loader { width: 18px; height: 18px; border: 2px solid #4a5a40; border-top-color: #e6ebe0; border-radius: 50%; animation: spin 1s linear infinite; }
+.stage-overlay.has-world { background: #1d271fe6; }
+.episode-end { background: #142010dd; }
+.episode-end h2 { margin: 0; font-weight: 600; }
+.episode-end p { margin: 0; color: #bac5b3; }
+.episode-end button { margin-top: 6px; }
+.loading-row { display: flex; align-items: flex-start; gap: 14px; width: min(320px, 100%); text-align: left; }
+.loading-row + .loading-row { margin-top: 12px; }
+.loading-row .loader { flex: none; margin-top: 2px; }
+.loading-row > div { flex: 1; min-width: 0; }
+.loading-row strong { display: block; font-weight: 600; }
+.loading-row div > span { display: block; margin-top: 3px; color: #bac5b3; }
+.loading-row[data-state="ready"] .loader, .loading-row[data-state="idle"] .loader, .loading-row[data-state="error"] .loader { border: 0; animation: none; text-align: center; line-height: 18px; }
+.loading-row[data-state="ready"] .loader::before { content: "✓"; }
+.loading-row[data-state="idle"] .loader::before { content: "–"; }
+.loading-row[data-state="error"] .loader::before { content: "!"; }
+#model-loading-progress { display: block; width: 100%; height: 4px; margin-top: 10px; border: 0; border-radius: 2px; overflow: hidden; appearance: none; background: #4a5a40; accent-color: #bad2a8; }
+#model-loading-progress::-webkit-progress-bar { background: #4a5a40; }
+#model-loading-progress::-webkit-progress-value { background: #bad2a8; }
+#model-loading-progress::-moz-progress-bar { background: #bad2a8; }
+@media (prefers-reduced-motion: reduce) { .loader { animation: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Controls */

@@ -24,8 +24,10 @@ Browser model.onnx SHA-256:
 `assets/world.zip` retains original Crafter sources, graphics, and dependencies.
 BALROG observation functions and instructions come from commit
 `b7afe79e3e4265811cfa985ed7c95c4d1a11e3f5`. The browser bridge normalizes terrain
-seeds to the original 64-bit Python behavior and preserves the 2,000-decision
-horizon. Individual source hashes are in `assets/world-provenance.json`.
+seeds to the original 64-bit Python behavior and retains the original
+2,000-decision horizon. The demo's browser worker applies a shorter 256-step
+time limit and reports truncation separately. Individual source hashes are in
+`assets/world-provenance.json`.
 
 | Component | Retained license text |
 |---|---|

@@ -107,5 +107,5 @@ if (!process.argv.includes('--assets-only')) {
   await mkdir(path.join(output, '.github/workflows'), { recursive: true });
   await copyFile(path.join(root, '.github/pages-entrypoint.yml'), path.join(output, '.github/workflows/deploy.yml'));
   await writeFile(path.join(output, '.nojekyll'), '');
-  console.log('Static site ready in dist/. Model assets are requested only after Run.');
+  console.log('Static site ready in dist/. The default model loads alongside the game.');
 }

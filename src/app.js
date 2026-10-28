@@ -23,21 +23,31 @@ function notice(message) {
   $('notice').hidden = !message;
 }
 
+function loadingStatus(kind, message, state = 'loading') {
+  $(`${kind}-loading-detail`).textContent = message;
+  $(`${kind}-loading-row`).dataset.state = state;
+}
+
 function controls() {
   const manualReady = worldReady && !busy && !autoplay && !world?.done;
-  $('run').disabled = !manualReady;
-  $('run').title = modelReady ? 'Run agent' : 'Download model and run agent';
+  $('run').disabled = !manualReady || modelLoading;
+  $('run').title = modelReady ? 'Run agent' : modelLoading ? 'Loading the default model' : 'Retry model and run agent';
   $('step').disabled = !manualReady || !modelReady;
-  $('step').title = modelReady ? 'One agent step' : 'Press Run first to load the model';
-  $('stop').disabled = (!busy && !autoplay) || resetting || pendingReset !== null;
+  $('step').title = modelReady ? 'One agent step' : 'Waiting for the default model';
+  $('stop').disabled = (!busy && !autoplay && !modelLoading) || resetting || pendingReset !== null;
   $('new-world').disabled = !worldReady || resetting || pendingReset !== null;
-  $('reset').disabled = !worldReady || resetting || pendingReset !== null || ((busy || autoplay) && !modelLoading);
-  $('seed').disabled = (busy || autoplay) && !modelLoading;
+  $('restart').disabled = $('new-world').disabled;
+  $('reset').disabled = !worldReady || resetting || pendingReset !== null || busy || autoplay;
+  $('seed').disabled = busy || autoplay;
   $('temperature').disabled = busy || autoplay;
   $('token-limit').disabled = busy || autoplay;
   document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = !manualReady; });
   $('manual-action').disabled = !manualReady;
   $('manual-go').disabled = !manualReady;
+  const ended = Boolean(world?.done) && !resetting;
+  $('world-loading').hidden = ended || (worldReady && !resetting && !modelLoading);
+  $('world-loading').classList.toggle('has-world', worldReady);
+  $('episode-end').hidden = !ended;
 }
 
 function draw(frame) {
@@ -53,7 +63,7 @@ function renderWorld(next) {
   world = next;
   worldReady = true;
   draw(next.frame);
-  $('world-loading').hidden = true;
+  loadingStatus('world', 'Ready', 'ready');
   $('world-seed').textContent = next.stats.seed;
   $('new-world').title = `New random world (current seed ${next.stats.seed})`;
   const inventory = next.stats.inventory || {};
@@ -66,7 +76,11 @@ function renderWorld(next) {
     return span;
   }));
   const achievements = Object.entries(next.stats.achievements || {}).filter(([, count]) => count > 0);
-  $('readout').textContent = `Step ${next.stats.steps}, ${achievements.length}/22 achievements${next.done ? ', episode finished' : ''}`;
+  $('readout').textContent = `Step ${next.stats.steps}/${next.episodeLimit ?? 256}, ${achievements.length}/22 achievements`;
+  $('episode-end-title').textContent = next.truncated ? 'Time limit reached' : 'Game over';
+  $('episode-end-detail').textContent = next.truncated
+    ? `Episode ended by time: ${next.episodeLimit ?? 256} steps. ${achievements.length}/22 achievements.`
+    : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $('achievement-count').textContent = `${achievements.length} of 22`;
   $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';
   $('observation').textContent = `${next.text.long_term_context}\n${next.text.short_term_context}`;
@@ -119,7 +133,7 @@ function generate() {
 
 worldWorker.onmessage = ({ data }) => {
   if (data.type === 'status') {
-    $('world-loading-detail').textContent = data.message;
+    loadingStatus('world', data.message);
   } else if (data.type === 'world') {
     if (pendingReset !== null) {
       startReset(pendingReset);
@@ -141,7 +155,7 @@ worldWorker.onmessage = ({ data }) => {
     autoplay = false;
     resetting = false;
     pendingReset = null;
-    $('world-loading-detail').textContent = data.message;
+    loadingStatus('world', 'Game could not load. Reload to try again.', 'error');
     $('thinking').hidden = true;
     responseView.stopStreaming();
     notice(`Crafter: ${data.message}`);
@@ -163,43 +177,46 @@ function discardModelWorker() {
 
 function stopModelLoading() {
   discardModelWorker();
-  busy = false;
   autoplay = false;
-  actionPending = false;
   $('thinking').hidden = true;
   $('model-detail').textContent = 'Download stopped. Press Run to try again.';
+  loadingStatus('model', 'Stopped. Press Run to retry.', 'idle');
+  $('model-loading-progress').hidden = true;
   $('token-stats').textContent = '';
   responseView.reset('Download stopped. Press Run to try again.');
 }
 
 function modelFailure(worker, message) {
   if (worker !== modelWorker) return;
+  const failedDuringLoad = modelLoading;
   discardModelWorker();
-  busy = false;
-  actionPending = false;
+  if (!failedDuringLoad) {
+    busy = false;
+    actionPending = false;
+  }
   autoplay = false;
   clearTimeout(autoTimer);
   autoTimer = null;
   $('thinking').hidden = true;
   responseView.stopStreaming();
   $('model-detail').textContent = 'Load failed. Press Run to retry.';
+  loadingStatus('model', 'Could not load. Press Run to retry.', 'error');
+  $('model-loading-progress').hidden = true;
   notice(`Model: ${String(message).split('\n')[0]} Press Run to retry.`);
-  if (pendingReset !== null) startReset(pendingReset);
+  if (pendingReset !== null && !applyingAction) startReset(pendingReset);
   else controls();
 }
 
-function loadModelForRun() {
-  // Creating this worker imports the tokenizer and ONNX code, so this function
-  // is called exclusively by an explicit click on the Run button.
+function loadDefaultModel() {
+  if (modelReady || modelLoading) return;
+  // Loading is independent of world initialization, resets, and agent playback.
   modelLoading = true;
-  busy = true;
-  autoplay = true;
   notice('');
-  responseView.reset('Downloading the model…');
+  if (autoplay) responseView.reset('Loading the default model…');
   $('model-detail').textContent = 'Downloading model…';
-  $('token-stats').textContent = 'Preparing 23.3 MiB checkpoint…';
-  $('thinking').hidden = false;
-  $('thinking').querySelector('span').textContent = 'Loading the agent…';
+  loadingStatus('model', 'Downloading the default PPO model…');
+  $('model-loading-progress').hidden = true;
+  $('model-loading-progress').removeAttribute('value');
   controls();
   try {
     const worker = new Worker(new URL('./model-worker.js', import.meta.url), { type: 'module' });
@@ -217,19 +234,27 @@ function handleModelMessage(worker, data) {
   if (worker !== modelWorker) return;
   if (data.type === 'status') {
     $('model-detail').textContent = data.message;
-    if (modelLoading) $('thinking').querySelector('span').textContent = data.message;
+    loadingStatus('model', data.message);
   } else if (data.type === 'download') {
     const loaded = (data.loaded / 1048576).toFixed(1);
     const total = (data.total / 1048576).toFixed(1);
     $('model-detail').textContent = `Model · ${loaded} / ${total} MiB`;
-    $('token-stats').textContent = `Downloading model · ${Math.round(100 * data.loaded / data.total)}%`;
-    $('thinking').querySelector('span').textContent = $('token-stats').textContent;
+    const progress = $('model-loading-progress');
+    progress.hidden = false;
+    if (data.total > 0) {
+      const fraction = Math.min(1, data.loaded / data.total);
+      progress.setAttribute('value', String(fraction));
+      loadingStatus('model', `${Math.round(100 * fraction)}% · ${loaded} / ${total} MiB`);
+    } else {
+      progress.removeAttribute('value');
+      loadingStatus('model', `${loaded} MiB downloaded`);
+    }
   } else if (data.type === 'ready') {
     if (!modelLoading) return;
     modelLoading = false;
     modelReady = true;
-    busy = false;
-    $('thinking').hidden = true;
+    loadingStatus('model', 'Ready', 'ready');
+    $('model-loading-progress').hidden = true;
     $('model-detail').textContent = `${data.manifest.label}, FP32, 5,033,600 parameters, ${data.threads} thread${data.threads === 1 ? '' : 's'}`;
     controls();
     if (autoplay) generate();
@@ -275,6 +300,8 @@ worldWorker.onerror = (event) => {
     autoplay = false;
     actionPending = false;
     if (modelLoading) discardModelWorker();
+    loadingStatus('world', 'Game could not load. Reload to try again.', 'error');
+    if (!modelReady) loadingStatus('model', 'Stopped', 'idle');
     worldReady = false;
     resetting = false;
     responseView.stopStreaming();
@@ -284,9 +311,10 @@ worldWorker.onerror = (event) => {
 };
 
 $('run').onclick = () => {
-  if (!worldReady || busy || autoplay || resetting || world.done) return;
-  if (!modelReady) loadModelForRun();
-  else { autoplay = true; generate(); }
+  if (!worldReady || busy || autoplay || resetting || modelLoading || world.done) return;
+  autoplay = true;
+  if (!modelReady) loadDefaultModel();
+  else generate();
 };
 $('step').onclick = generate;
 $('stop').onclick = () => {
@@ -301,7 +329,6 @@ $('stop').onclick = () => {
   controls();
 };
 function startReset(seed) {
-  if (modelLoading) stopModelLoading();
   pendingReset = null;
   resetting = true;
   busy = true;
@@ -313,7 +340,7 @@ function startReset(seed) {
   autoTimer = null;
   notice('');
   $('seed').value = String(seed);
-  $('world-loading-detail').textContent = `New world, seed ${seed}`;
+  loadingStatus('world', `New world, seed ${seed}`);
   $('world-seed').textContent = seed;
   $('world-loading').hidden = false;
   $('last-action').textContent = 'none';
@@ -351,7 +378,7 @@ $('show-stats').onchange = () => {
   $('token-stats').hidden = !$('show-stats').checked;
   $('action-footer').hidden = !$('show-stats').checked;
 };
-$('new-world').onclick = () => {
+$('new-world').onclick = $('restart').onclick = () => {
   const random = new Uint32Array(1);
   let seed;
   do { seed = crypto.getRandomValues(random)[0] & 0x7fffffff; }
@@ -380,4 +407,5 @@ window.addEventListener('keydown', (event) => {
   if (action && worldReady) { event.preventDefault(); manualAction(action); }
 });
 worldWorker.postMessage({ type: 'init', seed: Number($('seed').value) });
+loadDefaultModel();
 controls();

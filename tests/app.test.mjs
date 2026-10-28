@@ -71,16 +71,24 @@ function boot() {
   return { document, window, get, click, world, snapshot, models, ready, result, steps, fetches, workers, timers, timerDelays };
 }
 
-test('startup, settings, resets, manual actions and Step never create a model worker', () => {
+test('the default PPO loads alongside the world without starting the agent', () => {
   const ui = boot();
-  assert.equal(ui.workers.length, 1);
+  assert.equal(ui.workers.length, 2);
   assert.equal(ui.world.kind, 'world');
   assert.equal(ui.world.url, 'https://tviskaron.github.io/zero-wasm/built/world-worker.js');
   assert.equal(ui.world.messages[0].seed, 0);
+  const worker = ui.models()[0];
+  assert.equal(worker.messages[0].type, 'load');
+  assert.equal(worker.messages[0].model, 'ppo');
+  assert.equal(ui.get('world-loading').hidden, false);
+  worker.emit({ type: 'download', loaded: 1024, total: 2048 });
+  assert.equal(ui.get('model-loading-progress').getAttribute('value'), '0.5');
+  assert.match(ui.get('model-loading-detail').textContent, /50%/);
   ui.world.emit(ui.snapshot());
-  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('run').disabled, true);
   assert.equal(ui.get('step').disabled, true);
-  assert.match(ui.get('step').title, /Run first/);
+  assert.equal(ui.get('world-loading-row').dataset.state, 'ready');
+  assert.equal(ui.get('world-loading').hidden, false);
   ui.get('temperature').value = '0';
   ui.get('token-limit').value = '512';
   assert.equal(ui.get('token-stats').hidden, true);
@@ -98,30 +106,48 @@ test('startup, settings, resets, manual actions and Step never create a model wo
   ui.document.querySelector('[data-action="Do"]').onclick();
   assert.equal(ui.steps().at(-1).action, 'Do');
   ui.world.emit(ui.snapshot(123, 1));
-  assert.equal(ui.models().length, 0);
+  assert.equal(ui.models().length, 1);
   assert.equal(ui.fetches.length, 0);
+  ui.ready(worker);
+  assert.equal(worker.messages.length, 1, 'Autoload never requests a decision');
+  assert.equal(ui.timers.size, 0);
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('step').disabled, false);
+  assert.equal(ui.get('world-loading').hidden, true);
   assert.equal(ui.document.getElementById('model'), null);
   const preloads = [...ui.document.querySelectorAll('[rel="prefetch"], [rel="preload"], [rel="modulepreload"]')];
   assert.deepEqual(preloads.map(node => [node.getAttribute('as'), node.getAttribute('href')]), [
     ['font', './vendor/fonts/inter-latin-wght-normal.woff2'],
-  ], 'Only the font may preload; inference assets wait for Run');
+  ], 'Model downloads are managed by the model worker');
 });
 
-test('the first Run creates one worker, loads PPO, then starts the requested run', () => {
+test('model readiness before world readiness does not start play or dismiss the loader', () => {
+  const ui = boot();
+  ui.ready(ui.models()[0]);
+  assert.equal(ui.get('model-loading-row').dataset.state, 'ready');
+  assert.equal(ui.get('world-loading').hidden, false);
+  assert.equal(ui.get('run').disabled, true);
+  ui.world.emit(ui.snapshot());
+  assert.equal(ui.get('world-loading').hidden, true);
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.models()[0].messages.length, 1);
+  assert.equal(ui.steps().length, 0);
+});
+
+test('Run reuses the preloaded model and preserves sampling and step-delay settings', () => {
   const ui = boot();
   const state = ui.snapshot();
   ui.world.emit(state);
-  ui.click('run');
   const worker = ui.models()[0];
   assert.equal(worker.url, 'https://tviskaron.github.io/zero-wasm/built/model-worker.js');
   assert.equal(worker.messages[0].type, 'load');
   assert.equal(worker.messages[0].model, 'ppo');
+  ui.ready(worker);
+  ui.click('run');
   ui.get('run').onclick(); // An already queued double-click is ignored too.
   assert.equal(ui.models().length, 1);
-  assert.equal(worker.messages.length, 1);
+  assert.equal(worker.messages.length, 2);
   assert.equal(ui.get('stop').disabled, false);
-  assert.equal(ui.get('reset').disabled, false);
-  ui.ready(worker);
   const request = worker.messages[1];
   assert.equal(request.type, 'generate');
   assert.equal(request.temperature, 1);
@@ -149,7 +175,6 @@ test('the first Run creates one worker, loads PPO, then starts the requested run
 test('Stop aborts a model download, ignores stale messages, and permits an explicit retry', () => {
   const ui = boot();
   ui.world.emit(ui.snapshot());
-  ui.click('run');
   const old = ui.models()[0];
   const queued = old.onmessage;
   ui.click('stop');
@@ -168,23 +193,24 @@ test('Stop aborts a model download, ignores stale messages, and permits an expli
   assert.equal(fresh.messages.at(-1).type, 'generate');
 });
 
-test('Reset during loading terminates the download and never resumes it for the new world', () => {
+test('Reset preserves an in-progress model download and waits for the new world', () => {
   const ui = boot();
   ui.world.emit(ui.snapshot());
-  ui.click('run');
   const old = ui.models()[0];
-  const queued = old.onmessage;
   assert.equal(ui.get('seed').disabled, false);
   ui.get('seed').value = '99';
   ui.click('reset');
-  assert.equal(old.terminated, true);
+  assert.equal(old.terminated, false);
   assert.equal(ui.world.messages.at(-1).seed, 99);
   assert.equal(ui.get('run').disabled, true);
-  queued({ data: { type: 'ready', threads: 1, manifest: { label: 'stale' } } });
-  queued({ data: { type: 'result', id: 1, text: 'ACTION: Do', tokens: 4, seconds: 1 } });
+  ui.ready(old);
+  assert.equal(ui.get('run').disabled, true, 'Model readiness cannot finish a world reset');
+  assert.equal(ui.get('world-loading').hidden, false);
   ui.world.emit(ui.snapshot(99));
   assert.equal(ui.get('run').disabled, false);
-  assert.equal(ui.get('step').disabled, true);
+  assert.equal(ui.get('step').disabled, false);
+  assert.equal(ui.get('world-loading').hidden, true);
+  assert.equal(old.messages.length, 1);
   assert.equal(ui.models().length, 1);
   assert.equal(ui.steps().length, 0);
 });
@@ -192,7 +218,6 @@ test('Reset during loading terminates the download and never resumes it for the 
 test('download/network errors wait for Run before retrying', () => {
   const ui = boot();
   ui.world.emit(ui.snapshot());
-  ui.click('run');
   const failed = ui.models()[0];
   failed.emit({ type: 'error', id: null, message: 'Failed to fetch' });
   assert.equal(failed.terminated, true);
@@ -212,9 +237,9 @@ test('download/network errors wait for Run before retrying', () => {
 test('Stop suppresses an already queued result even if the worker finished before cancellation', () => {
   const ui = boot();
   ui.world.emit(ui.snapshot());
-  ui.click('run');
   const worker = ui.models()[0];
   ui.ready(worker);
+  ui.click('run');
   ui.click('stop');
   assert.equal(worker.messages.at(-1).type, 'cancel');
   ui.result(worker, { cancelled: false });
@@ -229,9 +254,9 @@ test('Stop suppresses an already queued result even if the worker finished befor
 test('reset during generation cancels the old action while retaining an already loaded model', () => {
   const ui = boot();
   ui.world.emit(ui.snapshot());
-  ui.click('run');
   const worker = ui.models()[0];
   ui.ready(worker);
+  ui.click('run');
   ui.click('new-world');
   assert.equal(worker.messages.at(-1).type, 'cancel');
   ui.result(worker);
@@ -241,6 +266,50 @@ test('reset during generation cancels the old action while retaining an already 
   assert.equal(ui.get('step').disabled, false);
   assert.equal(ui.models().length, 1);
   assert.equal(worker.messages.filter((message) => message.type === 'generate').length, 1);
+});
+
+test('background model readiness and failures do not release an in-flight world action', () => {
+  for (const outcome of ['ready', 'error']) {
+    const ui = boot();
+    ui.world.emit(ui.snapshot());
+    ui.document.querySelector('[data-action="Do"]').onclick();
+    const worker = ui.models()[0];
+    if (outcome === 'ready') ui.ready(worker);
+    else worker.emit({ type: 'error', id: null, message: 'Network error' });
+    assert.equal(ui.get('manual-go').disabled, true);
+    assert.equal(ui.get('run').disabled, true);
+    ui.world.emit(ui.snapshot(0, 1));
+    assert.equal(ui.get('manual-go').disabled, false);
+    assert.equal(ui.get('run').disabled, false);
+  }
+});
+
+test('natural endings and time truncation show distinct overlays and stop the agent', () => {
+  for (const truncated of [false, true]) {
+    const ui = boot();
+    ui.world.emit(ui.snapshot());
+    const worker = ui.models()[0];
+    ui.ready(worker);
+    ui.click('run');
+    ui.result(worker);
+    ui.world.emit({ ...ui.snapshot(0, truncated ? 256 : 8), done: true, truncated, episodeLimit: 256 });
+    assert.equal(ui.get('episode-end').hidden, false);
+    assert.equal(ui.get('episode-end-title').textContent, truncated ? 'Time limit reached' : 'Game over');
+    if (truncated) assert.match(ui.get('episode-end-detail').textContent, /ended by time: 256 steps/);
+    assert.equal(ui.get('run').disabled, true);
+    assert.equal(ui.get('step').disabled, true);
+    assert.equal(ui.timers.size, 0);
+    ui.get('run').onclick();
+    ui.get('step').onclick();
+    assert.equal(worker.messages.length, 2);
+    ui.click('restart');
+    assert.equal(ui.get('episode-end').hidden, true);
+    assert.equal(ui.world.messages.at(-1).type, 'reset');
+    ui.world.emit(ui.snapshot(ui.world.messages.at(-1).seed));
+    assert.equal(ui.get('run').disabled, false);
+    assert.equal(ui.models().length, 1);
+    assert.equal(worker.messages.length, 2);
+  }
 });
 
 test('HTML uses relative assets for GitHub project Pages', () => {

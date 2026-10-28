@@ -1,4 +1,4 @@
-# zero-wasm
+# ZeroHero 5M in Crafter
 
 [Open the demo](https://tviskaron.github.io/zero-wasm/).
 
@@ -20,11 +20,22 @@ npm start
 Open <http://127.0.0.1:8787>. The build downloads the pinned runtime dependencies
 and writes the static site to `dist/`; it does not train or evaluate a model.
 
-Opening the page initializes the Crafter WASM environment. Press **Run** to
-download the PPO ONNX model (23.3 MiB) and inference WASM runtime, then let the
-agent play. Game simulation and inference execute in browser workers. Use
+Opening the page loads the Crafter WASM environment and the default PPO ONNX
+model (23.3 MiB) in parallel. Both loading states and model download progress
+appear on the game screen. Once ready, press **Run** to start the agent or
+**Step** for one decision. Loading alone never starts play. Only the default
+PPO checkpoint is preloaded. Game simulation and inference execute in browser workers. Use
 **Stop** to pause, **Reset** for a new world, or arrow keys/WASD and Space for
 manual movement and interaction.
+
+Resetting the world keeps an in-progress model download. **Stop** can cancel
+the download; **Run** retries a cancelled or failed load.
+
+Demo episodes stop after 256 decisions, counting both agent and manual actions.
+The game screen reports **Time limit reached** for this truncation and
+**Game over** for an earlier natural ending. **New world** starts another episode
+with a fresh seed and reuses the loaded model. This demo limit is separate from
+the original model's evaluation horizon.
 
 The settings button opens sampling controls, an adjustable delay between steps
 (0.5 seconds by default), and optional token and reward stats. The current world

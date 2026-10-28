@@ -3,6 +3,8 @@ import { referenceSamplingDraws } from './sampling.js';
 
 let runtime;
 let queue = Promise.resolve();
+let episodeDone = false;
+const EPISODE_STEP_LIMIT = 256;
 const root = new URL('../', import.meta.url);
 
 const status = (message) => self.postMessage({ type: 'status', message });
@@ -33,11 +35,19 @@ async function handle(message) {
   if (!['init', 'reset', 'step'].includes(message.type)) {
     throw new Error(`Unknown Crafter worker command: ${message.type}`);
   }
+  if (message.type === 'step' && episodeDone) {
+    throw new Error('The episode has ended. Start a new world to continue.');
+  }
   runtime ??= initialize();
   const pyodide = await runtime;
   if (message.type !== 'step') status('Generating the Crafter world…');
   pyodide.globals.set('world_message', JSON.stringify(message));
   const metadata = JSON.parse(await pyodide.runPythonAsync('world_dispatch(world_message)'));
+  metadata.terminated = Boolean(metadata.done);
+  metadata.truncated = !metadata.terminated && metadata.stats.steps >= EPISODE_STEP_LIMIT;
+  metadata.done = metadata.terminated || metadata.truncated;
+  metadata.episodeLimit = EPISODE_STEP_LIMIT;
+  episodeDone = metadata.done;
   const proxy = pyodide.globals.get('world_frame');
   let bytes;
   try {

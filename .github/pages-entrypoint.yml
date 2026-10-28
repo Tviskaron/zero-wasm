@@ -1,0 +1,14 @@
+# This stable entry point is copied to gh-pages. Deployment logic stays on main.
+name: Deploy Zero WASM to GitHub Pages
+
+on: [workflow_dispatch]
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    uses: Tviskaron/zero-wasm/.github/workflows/deploy.yml@main

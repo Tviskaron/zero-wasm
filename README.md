@@ -39,15 +39,20 @@ the hosted demo therefore uses the supported single-thread inference fallback.
 ## Deployment and provenance
 
 The `main` branch contains the source, model assets, tests, and build workflow.
-The `gh-pages` branch contains only the compiled static site, with its own
-history. GitHub Actions runs `npm ci`, `npm test` and `npm run build` on each
-push to `main`, commits the generated files to `gh-pages`, and deploys that
-exact commit to <https://tviskaron.github.io/zero-wasm/>. Edit `main`; the workflow
-maintains `gh-pages` automatically.
+The `gh-pages` branch contains the compiled static site and a small deployment
+entry point, with its own history. GitHub Actions runs `npm ci`, `npm test` and
+`npm run build` on each push to `main`, commits the generated files to `gh-pages`,
+and dispatches deployment from that branch. The deployment uploads that exact
+commit to <https://tviskaron.github.io/zero-wasm/>. Edit `main`; the workflows
+maintain `gh-pages` automatically. The `github-pages` environment permits the
+`gh-pages` branch.
 
 For the first deployment, open the repository's **Settings → Pages** and set
-**Source** to **GitHub Actions**. Keep this setting: the workflow publishes
-the compiled branch and deploys it in the same run. Preview the project URL locally with
+**Source** to **GitHub Actions**. Keep this setting. The stable deployment entry
+point is bootstrapped with an authenticated Git push; regular builds reuse it
+and call the deployment implementation on `main`. If the entry point changes,
+run `npm run build` and `bash scripts/publish-pages.sh` locally with Git push
+access before the next automated build. Preview the project URL locally with
 `BASE_PATH=/zero-wasm/ npm start`.
 
 The model comes from

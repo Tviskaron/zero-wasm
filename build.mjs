@@ -104,6 +104,8 @@ if (!process.argv.includes('--assets-only')) {
   }
   await cp(path.join(root, 'assets'), path.join(output, 'assets'), { recursive: true });
   await cp(path.join(root, 'licenses'), path.join(output, 'licenses'), { recursive: true });
+  await mkdir(path.join(output, '.github/workflows'), { recursive: true });
+  await copyFile(path.join(root, '.github/pages-entrypoint.yml'), path.join(output, '.github/workflows/deploy.yml'));
   await writeFile(path.join(output, '.nojekyll'), '');
   console.log('Static site ready in dist/. Model assets are requested only after Run.');
 }

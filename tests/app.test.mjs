@@ -5,6 +5,9 @@ import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 import { ResponseView } from '../src/response-view.js';
 
+// The DOM harness has no layout engine; browser checks cover resize behavior.
+globalThis.ResizeObserver = class { observe() {} };
+
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
   .replace("import { ResponseView } from './response-view.js';", '')
@@ -15,6 +18,7 @@ function boot() {
   const workers = [];
   const fetches = [];
   const timers = new Map();
+  const timerDelays = new Map();
   let timer = 0;
   let random = 100;
   for (const select of document.querySelectorAll('select')) {
@@ -42,8 +46,8 @@ function boot() {
     ImageData: class {},
     crypto: { getRandomValues(array) { array[0] = ++random; return array; } },
     fetch(url) { fetches.push(url); throw new Error('Unexpected fetch from the page'); },
-    setTimeout(callback) { timers.set(++timer, callback); return timer; },
-    clearTimeout(id) { timers.delete(id); },
+    setTimeout(callback, delay) { timers.set(++timer, callback); timerDelays.set(timer, delay); return timer; },
+    clearTimeout(id) { timers.delete(id); timerDelays.delete(id); },
   });
   const get = (id) => document.getElementById(id);
   const click = (id) => { const button = get(id); if (!button.disabled) button.onclick(); };
@@ -64,7 +68,7 @@ function boot() {
     worker.emit({ type: 'result', id: request.id, text: 'ACTION: Move East', tokens: 4, seconds: 1, cancelled: false, capHit: false, ...extra });
   };
   const steps = () => world.messages.filter((message) => message.type === 'step');
-  return { document, window, get, click, world, snapshot, models, ready, result, steps, fetches, workers, timers };
+  return { document, window, get, click, world, snapshot, models, ready, result, steps, fetches, workers, timers, timerDelays };
 }
 
 test('startup, settings, resets, manual actions and Step never create a model worker', () => {
@@ -72,12 +76,19 @@ test('startup, settings, resets, manual actions and Step never create a model wo
   assert.equal(ui.workers.length, 1);
   assert.equal(ui.world.kind, 'world');
   assert.equal(ui.world.url, 'https://tviskaron.github.io/zero-wasm/built/world-worker.js');
+  assert.equal(ui.world.messages[0].seed, 0);
   ui.world.emit(ui.snapshot());
   assert.equal(ui.get('run').disabled, false);
   assert.equal(ui.get('step').disabled, true);
   assert.match(ui.get('step').title, /Run first/);
   ui.get('temperature').value = '0';
   ui.get('token-limit').value = '512';
+  assert.equal(ui.get('token-stats').hidden, true);
+  assert.equal(ui.get('action-footer').hidden, true);
+  ui.get('show-stats').checked = true;
+  ui.get('show-stats').onchange();
+  assert.equal(ui.get('token-stats').hidden, false);
+  assert.equal(ui.get('action-footer').hidden, false);
   ui.click('step');
   ui.get('step').onclick();
   ui.get('seed').value = '123';
@@ -90,7 +101,10 @@ test('startup, settings, resets, manual actions and Step never create a model wo
   assert.equal(ui.models().length, 0);
   assert.equal(ui.fetches.length, 0);
   assert.equal(ui.document.getElementById('model'), null);
-  assert.equal(ui.document.querySelector('[rel="prefetch"], [rel="preload"], [rel="modulepreload"]'), null);
+  const preloads = [...ui.document.querySelectorAll('[rel="prefetch"], [rel="preload"], [rel="modulepreload"]')];
+  assert.deepEqual(preloads.map(node => [node.getAttribute('as'), node.getAttribute('href')]), [
+    ['font', './vendor/fonts/inter-latin-wght-normal.woff2'],
+  ], 'Only the font may preload; inference assets wait for Run');
 });
 
 test('the first Run creates one worker, loads PPO, then starts the requested run', () => {
@@ -121,10 +135,15 @@ test('the first Run creates one worker, loads PPO, then starts the requested run
   assert.equal(ui.steps().length, 1, 'A duplicate response cannot apply an action twice');
   ui.world.emit(ui.snapshot(103000000, 1));
   assert.equal(ui.timers.size, 1);
+  assert.equal([...ui.timerDelays.values()][0], 500);
   ui.click('stop');
   assert.equal(ui.timers.size, 0);
+  ui.get('step-delay').value = '1000';
   ui.click('run');
   assert.equal(ui.models().length, 1, 'A loaded model is reused after Stop');
+  ui.result(worker);
+  ui.world.emit(ui.snapshot(103000000, 2));
+  assert.equal([...ui.timerDelays.values()][0], 1000);
 });
 
 test('Stop aborts a model download, ignores stale messages, and permits an explicit retry', () => {

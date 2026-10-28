@@ -38,7 +38,6 @@ function controls() {
   document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = !manualReady; });
   $('manual-action').disabled = !manualReady;
   $('manual-go').disabled = !manualReady;
-  $('run').textContent = '▶';
 }
 
 function draw(frame) {
@@ -55,33 +54,21 @@ function renderWorld(next) {
   worldReady = true;
   draw(next.frame);
   $('world-loading').hidden = true;
-  $('world-status').textContent = next.done ? 'Episode finished' : 'WASM · ready';
-  $('world-status').className = 'status ready';
-  $('world-seed').textContent = `SEED ${next.stats.seed}`;
-  $('new-world').title = `New random world · current seed ${next.stats.seed}`;
-  $('world-step').textContent = `STEP ${next.stats.steps}`;
+  $('world-seed').textContent = next.stats.seed;
+  $('new-world').title = `New random world (current seed ${next.stats.seed})`;
   const inventory = next.stats.inventory || {};
-  const vitals = [['♥', 'health', 'Health'], ['◆', 'food', 'Food'], ['◈', 'drink', 'Drink'], ['✦', 'energy', 'Energy']];
-  $('vitals').replaceChildren(...vitals.map(([icon, key, label]) => {
+  const vitals = [['health', 'Health'], ['food', 'Food'], ['drink', 'Drink'], ['energy', 'Energy']];
+  $('vitals').replaceChildren(...vitals.map(([key, label]) => {
     const span = document.createElement('span');
-    span.append(document.createTextNode(`${icon} `));
     const value = document.createElement('b');
-    value.textContent = inventory[key] ?? '—';
-    const small = document.createElement('small');
-    small.textContent = label;
-    span.append(value, small);
+    value.textContent = inventory[key] ?? '?';
+    span.append(`${label} `, value);
     return span;
   }));
   const achievements = Object.entries(next.stats.achievements || {}).filter(([, count]) => count > 0);
-  $('achievement-count').innerHTML = `${achievements.length} <small>/ 22</small>`;
-  $('achievement-list').replaceChildren();
-  if (!achievements.length) $('achievement-list').textContent = 'Explore the world to unlock achievements.';
-  for (const [name] of achievements) {
-    const chip = document.createElement('span');
-    chip.className = 'achievement-pill';
-    chip.textContent = name.replaceAll('_', ' ');
-    $('achievement-list').append(chip);
-  }
+  $('readout').textContent = `Step ${next.stats.steps}, ${achievements.length}/22 achievements${next.done ? ', episode finished' : ''}`;
+  $('achievement-count').textContent = `${achievements.length} of 22`;
+  $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';
   $('observation').textContent = `${next.text.long_term_context}\n${next.text.short_term_context}`;
   if (!$('manual-action').options.length) {
     for (const action of next.actions) {
@@ -94,7 +81,8 @@ function renderWorld(next) {
   }
   if (next.action) {
     $('last-action').textContent = next.action;
-    $('action-note').textContent = `Step ${next.stats.steps} · reward ${Number(next.reward).toFixed(2)}${next.invalid ? ' · invalid output defaulted to Noop' : ''}${next.done ? ' · episode finished' : ''}`;
+    $('action-note').textContent = `reward ${Number(next.reward).toFixed(2)}${next.invalid ? ', invalid output, used Noop' : ''}${next.done ? ', episode finished' : ''}`;
+    $('action-note').title = $('action-note').textContent;
   }
 }
 
@@ -118,7 +106,7 @@ function generate() {
   notice('');
   responseView.begin();
   $('thinking').hidden = false;
-  $('thinking').querySelector('span').textContent = 'Reading the world…';
+  $('thinking').querySelector('span').textContent = 'Processing the observation…';
   $('token-stats').textContent = 'Tokenizing observation…';
   modelWorker.postMessage({
     type: 'generate', id: requestId, instructions: world.instructions,
@@ -132,7 +120,6 @@ function generate() {
 worldWorker.onmessage = ({ data }) => {
   if (data.type === 'status') {
     $('world-loading-detail').textContent = data.message;
-    $('world-status').textContent = data.message;
   } else if (data.type === 'world') {
     if (pendingReset !== null) {
       startReset(pendingReset);
@@ -144,16 +131,16 @@ worldWorker.onmessage = ({ data }) => {
     applyingAction = false;
     if (data.done) autoplay = false;
     controls();
+    // Pause after each applied action so the result stays readable before the next decision.
     if (autoplay) autoTimer = setTimeout(() => {
       autoTimer = null;
       if (autoplay) generate();
-    }, 150);
+    }, Number($('step-delay').value));
   } else if (data.type === 'error') {
     busy = false;
     autoplay = false;
     resetting = false;
     pendingReset = null;
-    $('world-status').textContent = 'Game error';
     $('world-loading-detail').textContent = data.message;
     $('thinking').hidden = true;
     responseView.stopStreaming();
@@ -180,10 +167,9 @@ function stopModelLoading() {
   autoplay = false;
   actionPending = false;
   $('thinking').hidden = true;
-  $('model-status').textContent = 'Loads on ▶';
-  $('model-status').className = 'status';
+  $('model-detail').textContent = 'Download stopped. Press Run to try again.';
   $('token-stats').textContent = '';
-  responseView.reset('Download stopped. Press ▶ to try again.');
+  responseView.reset('Download stopped. Press Run to try again.');
 }
 
 function modelFailure(worker, message) {
@@ -196,9 +182,8 @@ function modelFailure(worker, message) {
   autoTimer = null;
   $('thinking').hidden = true;
   responseView.stopStreaming();
-  $('model-status').textContent = 'Load failed · press ▶';
-  $('model-status').className = 'status';
-  notice(`Model: ${String(message).split('\n')[0]} Press ▶ to retry.`);
+  $('model-detail').textContent = 'Load failed. Press Run to retry.';
+  notice(`Model: ${String(message).split('\n')[0]} Press Run to retry.`);
   if (pendingReset !== null) startReset(pendingReset);
   else controls();
 }
@@ -211,8 +196,7 @@ function loadModelForRun() {
   autoplay = true;
   notice('');
   responseView.reset('Downloading the model…');
-  $('model-status').textContent = 'Downloading model…';
-  $('model-status').className = 'status';
+  $('model-detail').textContent = 'Downloading model…';
   $('token-stats').textContent = 'Preparing 23.3 MiB checkpoint…';
   $('thinking').hidden = false;
   $('thinking').querySelector('span').textContent = 'Loading the agent…';
@@ -232,21 +216,21 @@ function handleModelMessage(worker, data) {
   // A stopped download can still have messages queued on the main thread.
   if (worker !== modelWorker) return;
   if (data.type === 'status') {
-    $('model-status').textContent = data.message;
+    $('model-detail').textContent = data.message;
+    if (modelLoading) $('thinking').querySelector('span').textContent = data.message;
   } else if (data.type === 'download') {
     const loaded = (data.loaded / 1048576).toFixed(1);
     const total = (data.total / 1048576).toFixed(1);
-    $('model-status').textContent = `Model · ${loaded} / ${total} MiB`;
+    $('model-detail').textContent = `Model · ${loaded} / ${total} MiB`;
     $('token-stats').textContent = `Downloading model · ${Math.round(100 * data.loaded / data.total)}%`;
+    $('thinking').querySelector('span').textContent = $('token-stats').textContent;
   } else if (data.type === 'ready') {
     if (!modelLoading) return;
     modelLoading = false;
     modelReady = true;
     busy = false;
     $('thinking').hidden = true;
-    $('model-status').textContent = `WASM · ${data.threads} thread${data.threads === 1 ? '' : 's'}`;
-    $('model-status').className = 'status ready';
-    $('model-detail').textContent = `${data.manifest.label} · FP32 · 5,033,600 parameters`;
+    $('model-detail').textContent = `${data.manifest.label}, FP32, 5,033,600 parameters, ${data.threads} thread${data.threads === 1 ? '' : 's'}`;
     controls();
     if (autoplay) generate();
   } else if (data.id !== null && data.id !== requestId) {
@@ -254,12 +238,11 @@ function handleModelMessage(worker, data) {
   } else if (data.type === 'prefill') {
     if (!actionPending || pendingReset !== null) return;
     $('token-stats').textContent = `Reading ${data.completed} / ${data.total} prompt tokens`;
-    $('thinking').querySelector('span').textContent = 'Encoding the observation and recent history…';
   } else if (data.type === 'tokens') {
     if (!actionPending || pendingReset !== null) return;
     responseView.append(data.text);
-    $('token-stats').textContent = `${data.tokens} tokens · ${data.tokensPerSecond.toFixed(1)} tok/s`;
-    $('thinking').querySelector('span').textContent = 'Generating the next action…';
+    $('token-stats').textContent = `${data.tokens} tokens, ${data.tokensPerSecond.toFixed(1)} tok/s`;
+    $('thinking').hidden = true;
   } else if (data.type === 'result') {
     if (!actionPending) return;
     $('thinking').hidden = true;
@@ -269,7 +252,7 @@ function handleModelMessage(worker, data) {
       return;
     }
     responseView.finish(data.text || (data.cancelled ? 'Generation stopped.' : 'Empty model response.'));
-    $('token-stats').textContent = `${data.tokens} tokens · ${(data.seconds).toFixed(1)}s${data.capHit ? ' · token limit reached' : ''}`;
+    $('token-stats').textContent = `${data.tokens} tokens in ${(data.seconds).toFixed(1)}s${data.capHit ? ', token limit reached' : ''}`;
     if (data.cancelled || stopRequested) {
       busy = false;
       autoplay = false;
@@ -279,7 +262,7 @@ function handleModelMessage(worker, data) {
     const parsed = data.text.replace(/[^a-zA-Z\s:]/g, '').split('ACTION:').at(-1).trim();
     const action = world.actions.includes(parsed) ? parsed : 'Noop';
     $('last-action').textContent = action;
-    if (action !== parsed) $('action-note').textContent = 'No valid action in response · fallback to Noop';
+    if (action !== parsed) $('action-note').textContent = 'No valid action in response, fallback to Noop';
     applyingAction = true;
     worldWorker.postMessage({ type: 'step', action: parsed });
   } else if (data.type === 'error') {
@@ -330,12 +313,12 @@ function startReset(seed) {
   autoTimer = null;
   notice('');
   $('seed').value = String(seed);
-  $('world-status').textContent = 'Generating world…';
-  $('world-loading-detail').textContent = `New world · seed ${seed}`;
+  $('world-loading-detail').textContent = `New world, seed ${seed}`;
+  $('world-seed').textContent = seed;
   $('world-loading').hidden = false;
-  $('last-action').textContent = '—';
-  $('world-step').textContent = 'NEW WORLD';
-  responseView.reset('A fresh world. Press ▶ to explore.');
+  $('last-action').textContent = 'none';
+  $('readout').textContent = 'Creating a new world…';
+  responseView.reset('New world created. Press Run to start the agent.');
   $('thinking').hidden = true;
   $('action-note').textContent = '';
   $('token-stats').textContent = '';
@@ -355,7 +338,8 @@ function requestReset(seed) {
   if (busy && (actionPending || applyingAction)) {
     pendingReset = seed;
     if (actionPending) modelWorker.postMessage({ type: 'cancel', id: requestId });
-    $('thinking').querySelector('span').textContent = 'Starting a fresh world…';
+    $('thinking').querySelector('span').textContent = 'Creating a new world…';
+    $('thinking').hidden = false;
   } else {
     startReset(seed);
   }
@@ -363,6 +347,10 @@ function requestReset(seed) {
 }
 
 $('reset').onclick = () => requestReset(Number($('seed').value));
+$('show-stats').onchange = () => {
+  $('token-stats').hidden = !$('show-stats').checked;
+  $('action-footer').hidden = !$('show-stats').checked;
+};
 $('new-world').onclick = () => {
   const random = new Uint32Array(1);
   let seed;
@@ -374,8 +362,20 @@ document.querySelectorAll('[data-action]').forEach((button) => {
   button.onclick = () => manualAction(button.dataset.action);
 });
 $('manual-go').onclick = () => manualAction($('manual-action').value);
+const drawer = document.querySelector('.drawer');
+document.addEventListener('pointerdown', (event) => {
+  if (drawer.open && !drawer.contains(event.target)) drawer.open = false;
+});
+drawer.addEventListener('toggle', () => {
+  if (drawer.open) drawer.querySelector('.drawer-content').scrollIntoView({ block: 'nearest' });
+});
 window.addEventListener('keydown', (event) => {
-  if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(document.activeElement?.tagName) || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key === 'Escape' && drawer.open) {
+    drawer.open = false;
+    drawer.querySelector('summary').focus();
+    return;
+  }
+  if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'SUMMARY'].includes(document.activeElement?.tagName) || event.ctrlKey || event.metaKey || event.altKey) return;
   const action = { ArrowUp: 'Move North', ArrowDown: 'Move South', ArrowLeft: 'Move West', ArrowRight: 'Move East', w: 'Move North', s: 'Move South', a: 'Move West', d: 'Move East', ' ': 'Do' }[event.key];
   if (action && worldReady) { event.preventDefault(); manualAction(action); }
 });

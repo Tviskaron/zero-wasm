@@ -35,7 +35,7 @@ async function handle(message) {
   }
   runtime ??= initialize();
   const pyodide = await runtime;
-  if (message.type !== 'step') status('Generating a real Crafter world…');
+  if (message.type !== 'step') status('Generating the Crafter world…');
   pyodide.globals.set('world_message', JSON.stringify(message));
   const metadata = JSON.parse(await pyodide.runPythonAsync('world_dispatch(world_message)'));
   const proxy = pyodide.globals.get('world_frame');

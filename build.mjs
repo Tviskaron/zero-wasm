@@ -61,10 +61,16 @@ async function prepareAssets() {
     const name = `ort-wasm-simd-threaded.${extension}`;
     await copyFile(path.join(ort, name), path.join(ortTarget, name));
   }
+  const inter = path.join(root, 'node_modules', '@fontsource-variable', 'inter');
+  const fontTarget = path.join(vendor, 'fonts');
+  await mkdir(fontTarget, { recursive: true });
+  await copyFile(path.join(inter, 'files', 'inter-latin-wght-normal.woff2'), path.join(fontTarget, 'inter-latin-wght-normal.woff2'));
+  await copyFile(path.join(inter, 'LICENSE'), path.join(fontTarget, 'INTER-LICENSE.txt'));
   await writeFile(path.join(vendor, 'manifest.json'), JSON.stringify({
     pyodide: runtime.version,
     python: lock.info.python,
     onnxruntime: JSON.parse(await readFile(path.join(root, 'node_modules', 'onnxruntime-web', 'package.json'), 'utf8')).version,
+    inter: JSON.parse(await readFile(path.join(inter, 'package.json'), 'utf8')).version,
     packages: metadata,
   }, null, 2) + '\n');
   console.log('Local WASM runtime assets ready. Runtime needs no CDN connection.');

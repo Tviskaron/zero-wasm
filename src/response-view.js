@@ -8,6 +8,10 @@ export class ResponseView {
     this.follow = true;
     this.onScroll = () => { this.follow = this.atBottom(); };
     container.addEventListener('scroll', this.onScroll, { passive: true });
+    // Resizing does not fire scroll events; keep the latest line in view.
+    new ResizeObserver(() => {
+      if (this.follow) container.scrollTop = container.scrollHeight;
+    }).observe(container);
   }
 
   atBottom() {

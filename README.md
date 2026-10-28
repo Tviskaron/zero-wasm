@@ -26,6 +26,11 @@ agent play. Game simulation and inference execute in browser workers. Use
 **Stop** to pause, **Reset** for a new world, or arrow keys/WASD and Space for
 manual movement and interaction.
 
+The settings button opens sampling controls, an adjustable delay between steps
+(0.5 seconds by default), and optional token and reward stats. The current world
+seed appears above the game; the initial seed is 0. Reasoning stays beside the
+world and follows new text as the layout resizes. Inter is bundled locally.
+
 Downloads use ordinary browser/HTTP caching. Persistent caching or offline
 availability across reloads is not guaranteed. A modern browser with WASM and
 SIMD support is required. GitHub Pages does not provide COOP/COEP isolation;

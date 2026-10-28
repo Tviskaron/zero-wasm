@@ -134,6 +134,23 @@ test('model readiness before world readiness does not start play or dismiss the 
   assert.equal(ui.steps().length, 0);
 });
 
+test('Step makes exactly one decision after the first load without pressing Run', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  const worker = ui.models()[0];
+  ui.ready(worker);
+  assert.equal(ui.get('step').disabled, false);
+  assert.equal(worker.messages.length, 1);
+  ui.click('step');
+  assert.equal(worker.messages.at(-1).type, 'generate');
+  ui.result(worker);
+  assert.equal(ui.steps().length, 1);
+  ui.world.emit(ui.snapshot(0, 1));
+  assert.equal(ui.timers.size, 0, 'Step must not start continuous play');
+  assert.equal(worker.messages.filter(message => message.type === 'generate').length, 1);
+  assert.equal(ui.get('step').disabled, false);
+});
+
 test('Run reuses the preloaded model and preserves sampling and step-delay settings', () => {
   const ui = boot();
   const state = ui.snapshot();

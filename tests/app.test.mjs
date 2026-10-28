@@ -1,0 +1,231 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
+import { ResponseView } from '../src/response-view.js';
+
+const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
+  .replace("import { ResponseView } from './response-view.js';", '')
+  .replaceAll('import.meta.url', JSON.stringify('https://tviskaron.github.io/zero-wasm/built/app.js'));
+
+function boot() {
+  const { window, document } = parseHTML(html);
+  const workers = [];
+  const fetches = [];
+  const timers = new Map();
+  let timer = 0;
+  let random = 100;
+  for (const select of document.querySelectorAll('select')) {
+    let value = select.querySelector('option[selected]')?.value || select.querySelector('option')?.value || '';
+    Object.defineProperty(select, 'value', { get: () => value, set: (next) => { value = String(next); } });
+  }
+  document.getElementById('world').getContext = () => ({ putImageData() {} });
+  class FakeWorker {
+    constructor(url) {
+      this.url = url.href;
+      this.kind = this.url.endsWith('/model-worker.js') ? 'model' : 'world';
+      this.messages = [];
+      this.terminated = false;
+      workers.push(this);
+    }
+    postMessage(message) {
+      assert.equal(this.terminated, false, 'No messages may be sent to a terminated worker');
+      this.messages.push(message);
+    }
+    terminate() { this.terminated = true; }
+    emit(data) { this.onmessage?.({ data }); }
+  }
+  vm.runInNewContext(source, {
+    document, window, Worker: FakeWorker, ResponseView, URL, Uint32Array,
+    ImageData: class {},
+    crypto: { getRandomValues(array) { array[0] = ++random; return array; } },
+    fetch(url) { fetches.push(url); throw new Error('Unexpected fetch from the page'); },
+    setTimeout(callback) { timers.set(++timer, callback); return timer; },
+    clearTimeout(id) { timers.delete(id); },
+  });
+  const get = (id) => document.getElementById(id);
+  const click = (id) => { const button = get(id); if (!button.disabled) button.onclick(); };
+  const world = workers[0];
+  const snapshot = (seed = 103000000, steps = 0) => ({
+    type: 'world', done: false, action: steps ? 'Move East' : null, reward: 0,
+    text: { long_term_context: 'A tree is to the east.', short_term_context: 'Choose an action.' },
+    history: [], instructions: 'Crafter rules', prompt: 'Original public prompt',
+    actions: ['Noop', 'Move East', 'Move West', 'Move North', 'Move South', 'Do', 'Sleep'],
+    stats: { seed, steps, inventory: { health: 9 }, achievements: {} },
+    frame: { rgba: new ArrayBuffer(4), width: 1, height: 1 },
+    sampling: { seed: 424242 + seed * 10000 + steps, draws: new Float64Array(1024).fill(0.4) },
+  });
+  const models = () => workers.filter((worker) => worker.kind === 'model');
+  const ready = (worker) => worker.emit({ type: 'ready', threads: 1, manifest: { label: 'PPO · iteration 300' } });
+  const result = (worker, extra = {}) => {
+    const request = worker.messages.findLast((message) => message.type === 'generate');
+    worker.emit({ type: 'result', id: request.id, text: 'ACTION: Move East', tokens: 4, seconds: 1, cancelled: false, capHit: false, ...extra });
+  };
+  const steps = () => world.messages.filter((message) => message.type === 'step');
+  return { document, window, get, click, world, snapshot, models, ready, result, steps, fetches, workers, timers };
+}
+
+test('startup, settings, resets, manual actions and Step never create a model worker', () => {
+  const ui = boot();
+  assert.equal(ui.workers.length, 1);
+  assert.equal(ui.world.kind, 'world');
+  assert.equal(ui.world.url, 'https://tviskaron.github.io/zero-wasm/built/world-worker.js');
+  ui.world.emit(ui.snapshot());
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('step').disabled, true);
+  assert.match(ui.get('step').title, /Run first/);
+  ui.get('temperature').value = '0';
+  ui.get('token-limit').value = '512';
+  ui.click('step');
+  ui.get('step').onclick();
+  ui.get('seed').value = '123';
+  ui.click('reset');
+  assert.equal(ui.world.messages.at(-1).type, 'reset');
+  ui.world.emit(ui.snapshot(123));
+  ui.document.querySelector('[data-action="Do"]').onclick();
+  assert.equal(ui.steps().at(-1).action, 'Do');
+  ui.world.emit(ui.snapshot(123, 1));
+  assert.equal(ui.models().length, 0);
+  assert.equal(ui.fetches.length, 0);
+  assert.equal(ui.document.getElementById('model'), null);
+  assert.equal(ui.document.querySelector('[rel="prefetch"], [rel="preload"], [rel="modulepreload"]'), null);
+});
+
+test('the first Run creates one worker, loads PPO, then starts the requested run', () => {
+  const ui = boot();
+  const state = ui.snapshot();
+  ui.world.emit(state);
+  ui.click('run');
+  const worker = ui.models()[0];
+  assert.equal(worker.url, 'https://tviskaron.github.io/zero-wasm/built/model-worker.js');
+  assert.equal(worker.messages[0].type, 'load');
+  assert.equal(worker.messages[0].model, 'ppo');
+  ui.get('run').onclick(); // An already queued double-click is ignored too.
+  assert.equal(ui.models().length, 1);
+  assert.equal(worker.messages.length, 1);
+  assert.equal(ui.get('stop').disabled, false);
+  assert.equal(ui.get('reset').disabled, false);
+  ui.ready(worker);
+  const request = worker.messages[1];
+  assert.equal(request.type, 'generate');
+  assert.equal(request.temperature, 1);
+  assert.equal(request.maxNewTokens, 1024);
+  assert.equal(request.samplingSeed, state.sampling.seed);
+  assert.equal(request.samplingDraws, state.sampling.draws);
+  ui.result(worker);
+  assert.equal(ui.steps().length, 1);
+  assert.equal(ui.steps()[0].action, 'Move East');
+  ui.result(worker);
+  assert.equal(ui.steps().length, 1, 'A duplicate response cannot apply an action twice');
+  ui.world.emit(ui.snapshot(103000000, 1));
+  assert.equal(ui.timers.size, 1);
+  ui.click('stop');
+  assert.equal(ui.timers.size, 0);
+  ui.click('run');
+  assert.equal(ui.models().length, 1, 'A loaded model is reused after Stop');
+});
+
+test('Stop aborts a model download, ignores stale messages, and permits an explicit retry', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  ui.click('run');
+  const old = ui.models()[0];
+  const queued = old.onmessage;
+  ui.click('stop');
+  assert.equal(old.terminated, true);
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('step').disabled, true);
+  queued({ data: { type: 'ready', threads: 1, manifest: { label: 'stale' } } });
+  queued({ data: { type: 'result', id: 1, text: 'ACTION: Do', tokens: 4, seconds: 1 } });
+  assert.equal(old.messages.length, 1);
+  assert.equal(ui.steps().length, 0);
+  ui.click('run');
+  const fresh = ui.models()[1];
+  queued({ data: { type: 'ready', threads: 1, manifest: { label: 'stale' } } });
+  assert.equal(fresh.messages.length, 1);
+  ui.ready(fresh);
+  assert.equal(fresh.messages.at(-1).type, 'generate');
+});
+
+test('Reset during loading terminates the download and never resumes it for the new world', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  ui.click('run');
+  const old = ui.models()[0];
+  const queued = old.onmessage;
+  assert.equal(ui.get('seed').disabled, false);
+  ui.get('seed').value = '99';
+  ui.click('reset');
+  assert.equal(old.terminated, true);
+  assert.equal(ui.world.messages.at(-1).seed, 99);
+  assert.equal(ui.get('run').disabled, true);
+  queued({ data: { type: 'ready', threads: 1, manifest: { label: 'stale' } } });
+  queued({ data: { type: 'result', id: 1, text: 'ACTION: Do', tokens: 4, seconds: 1 } });
+  ui.world.emit(ui.snapshot(99));
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('step').disabled, true);
+  assert.equal(ui.models().length, 1);
+  assert.equal(ui.steps().length, 0);
+});
+
+test('download/network errors wait for Run before retrying', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  ui.click('run');
+  const failed = ui.models()[0];
+  failed.emit({ type: 'error', id: null, message: 'Failed to fetch' });
+  assert.equal(failed.terminated, true);
+  assert.equal(ui.get('run').disabled, false);
+  assert.match(ui.get('notice').textContent, /retry/);
+  assert.equal(ui.models().length, 1);
+  ui.click('run');
+  const retry = ui.models()[1];
+  retry.onerror({ message: 'Network error loading worker module' });
+  assert.equal(retry.terminated, true);
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.models().length, 2);
+  ui.click('run');
+  assert.equal(ui.models().length, 3);
+});
+
+test('Stop suppresses an already queued result even if the worker finished before cancellation', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  ui.click('run');
+  const worker = ui.models()[0];
+  ui.ready(worker);
+  ui.click('stop');
+  assert.equal(worker.messages.at(-1).type, 'cancel');
+  ui.result(worker, { cancelled: false });
+  assert.equal(ui.steps().length, 0);
+  assert.equal(ui.get('run').disabled, false);
+  assert.equal(ui.get('step').disabled, false);
+  ui.click('step');
+  assert.equal(worker.messages.at(-1).type, 'generate');
+  assert.equal(ui.models().length, 1);
+});
+
+test('reset during generation cancels the old action while retaining an already loaded model', () => {
+  const ui = boot();
+  ui.world.emit(ui.snapshot());
+  ui.click('run');
+  const worker = ui.models()[0];
+  ui.ready(worker);
+  ui.click('new-world');
+  assert.equal(worker.messages.at(-1).type, 'cancel');
+  ui.result(worker);
+  assert.equal(ui.steps().length, 0);
+  assert.equal(ui.world.messages.at(-1).type, 'reset');
+  ui.world.emit(ui.snapshot(ui.world.messages.at(-1).seed));
+  assert.equal(ui.get('step').disabled, false);
+  assert.equal(ui.models().length, 1);
+  assert.equal(worker.messages.filter((message) => message.type === 'generate').length, 1);
+});
+
+test('HTML uses relative assets for GitHub project Pages', () => {
+  const { document } = parseHTML(html);
+  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute('href'), './styles.css');
+  assert.equal(document.querySelector('script[type="module"]').getAttribute('src'), './built/app.js');
+});

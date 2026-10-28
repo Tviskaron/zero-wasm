@@ -1,0 +1,74 @@
+{
+  "stage": "ppo",
+  "repo": "RLMM/zerohero-crafter-5m-ppo",
+  "revision": "6c8a3bf6884c814d19e521551f2b48ee3c20252c",
+  "label": "PPO · iteration 300",
+  "model_sha256": "ff56252479716d153a31e100a3dbadf54f8571912bc352ec0222106db5ad0b10",
+  "parameters": 5033600,
+  "context_length": 4096,
+  "max_new_tokens": 1024,
+  "layers": 6,
+  "kv_heads": 4,
+  "head_dim": 32,
+  "eos_token_id": 2,
+  "pad_token_id": 0,
+  "dtype": "float32",
+  "onnx_sha256": "3cd787540265f4d908954b78aba4d45a07926069a81496244b0f7441434f3cb3",
+  "onnx_bytes": 24451813,
+  "input_names": [
+    "input_ids",
+    "past_key_0",
+    "past_value_0",
+    "past_key_1",
+    "past_value_1",
+    "past_key_2",
+    "past_value_2",
+    "past_key_3",
+    "past_value_3",
+    "past_key_4",
+    "past_value_4",
+    "past_key_5",
+    "past_value_5"
+  ],
+  "output_names": [
+    "logits",
+    "present_key_0",
+    "present_value_0",
+    "present_key_1",
+    "present_value_1",
+    "present_key_2",
+    "present_value_2",
+    "present_key_3",
+    "present_value_3",
+    "present_key_4",
+    "present_value_4",
+    "present_key_5",
+    "present_value_5"
+  ],
+  "validation": {
+    "tested_prompt_lengths": [
+      1,
+      17,
+      129
+    ],
+    "incremental_decode": true,
+    "chunked_prefill": true,
+    "greedy_next_tokens_match": true,
+    "max_absolute_logit_error": 0.000015974044799804688,
+    "reference": "Transformers 4.51.1 Qwen3 eager FP32"
+  },
+  "decoding_defaults": {
+    "temperature": 1,
+    "max_new_tokens": 1024,
+    "history_size": 4,
+    "top_p": 1,
+    "top_k": 0,
+    "sampling_seed": 424242
+  },
+  "decoding_sources": {
+    "published_ppo_protocol": "https://huggingface.co/RLMM/zerohero-crafter-5m-ppo/resolve/6c8a3bf6884c814d19e521551f2b48ee3c20252c/evaluation.json",
+    "checkpoint_config": "https://huggingface.co/RLMM/zerohero-crafter-5m-ppo/resolve/6c8a3bf6884c814d19e521551f2b48ee3c20252c/config.json",
+    "checkpoint_provenance": "https://huggingface.co/RLMM/zerohero-crafter-5m-ppo/resolve/6c8a3bf6884c814d19e521551f2b48ee3c20252c/provenance.json"
+  },
+  "decoding_note": "Defaults follow the published full-vocabulary temperature-1 PPO development protocol and per-world PCG64 draw rule. Floating-point kernels and environment runtime differences can still change sampled trajectories and scores."
+}

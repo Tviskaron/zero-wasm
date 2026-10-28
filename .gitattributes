@@ -1,0 +1,5 @@
+* text=auto
+*.onnx binary
+*.zip binary
+# Retain upstream license files without whitespace or line-ending changes.
+licenses/** -text -whitespace

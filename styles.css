@@ -15,8 +15,8 @@
   --disabled: #9ba196;
   --line: #e2e5de;
   --hover: #eff1ec;
-  --accent: #3f6b2f;
-  --accent-hover: #355a27;
+  --accent: #39722c;
+  --accent-hover: #2d5e22;
   --stage: #1d271f;
   --radius: 6px;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -80,16 +80,20 @@ canvas { display: block; width: 100%; height: 100%; object-fit: contain; image-r
 
 /* Controls */
 button, input, select { height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); font: inherit; color: inherit; }
-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 500; cursor: pointer; }
-button:hover:enabled { background: var(--hover); }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-color: #b9b18c; background: #eee5ca; color: #565033; font-weight: 500; cursor: pointer; }
+button:hover:enabled { background: #e2d6b1; }
 button:disabled, select:disabled, input:disabled { color: var(--disabled); cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.primary { padding: 0 16px 0 12px; border-color: var(--accent); background: var(--accent); color: #fff; }
 button.primary:hover:enabled { background: var(--accent-hover); }
-button.primary:disabled { border-color: #a9b8a0; background: #a9b8a0; color: #fff; }
-button.icon, .drawer > summary { width: 36px; padding: 0; border-color: transparent; background: transparent; color: var(--ink); }
-button.icon:disabled { color: var(--disabled); }
-button.icon:hover:enabled, .drawer > summary:hover, .drawer[open] > summary { background: var(--hover); }
+button.primary:disabled { border-color: #adbd97; background: #adbd97; color: #fff; }
+button.icon, .drawer > summary { width: 36px; padding: 0; border: 1px solid #b6c1a2; background: #e1e7d2; color: #4a6238; }
+button.icon:disabled { border-color: #dce0d2; background: #eef0e7; color: #a9b09c; }
+button.icon:hover:enabled, .drawer > summary:hover, .drawer[open] > summary { background: #cbd7b6; }
+#step:not(:disabled) { border-color: #a8bc88; background: #d5e5b8; color: #386428; }
+#step:hover:enabled { background: #c3d99e; }
+#stop:not(:disabled) { border-color: #c1a77d; background: #eddfc6; color: #80552c; }
+#stop:hover:enabled { background: #dfcaa6; }
 
 .bar { position: relative; display: flex; align-items: center; gap: 16px; padding-top: 12px; }
 .agent-controls { display: flex; align-items: center; gap: 4px; }

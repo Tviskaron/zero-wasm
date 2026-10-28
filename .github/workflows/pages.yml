@@ -2,7 +2,7 @@ name: Deploy Zero WASM to GitHub Pages
 
 on:
   push:
-    branches: [codex/github-pages]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,10 +26,19 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - name: Publish compiled files to gh-pages
+        id: compiled
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          bash scripts/publish-pages.sh
+          mkdir -p "$RUNNER_TEMP/pages"
+          git archive refs/remotes/origin/gh-pages | tar -x -C "$RUNNER_TEMP/pages"
+          echo "path=$RUNNER_TEMP/pages" >> "$GITHUB_OUTPUT"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: ${{ steps.compiled.outputs.path }}
 
   deploy:
     needs: build

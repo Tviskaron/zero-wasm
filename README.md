@@ -33,13 +33,16 @@ the hosted demo therefore uses the supported single-thread inference fallback.
 
 ## Deployment and provenance
 
-The `codex/github-pages` branch contains the standalone site. GitHub Actions
-runs `npm ci`, `npm test` and `npm run build`, then publishes `dist/` to
-<https://tviskaron.github.io/zero-wasm/>.
+The `main` branch contains the source, model assets, tests, and build workflow.
+The `gh-pages` branch contains only the compiled static site, with its own
+history. GitHub Actions runs `npm ci`, `npm test` and `npm run build` on each
+push to `main`, commits the generated files to `gh-pages`, and deploys that
+exact commit to <https://tviskaron.github.io/zero-wasm/>. Edit `main`; the workflow
+maintains `gh-pages` automatically.
 
 For the first deployment, open the repository's **Settings → Pages** and set
-**Source** to **GitHub Actions**. Subsequent pushes to the dedicated branch
-deploy automatically. Preview the project URL locally with
+**Source** to **GitHub Actions**. Keep this setting: the workflow publishes
+the compiled branch and deploys it in the same run. Preview the project URL locally with
 `BASE_PATH=/zero-wasm/ npm start`.
 
 The model comes from

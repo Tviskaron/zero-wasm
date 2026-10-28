@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fafaf8">
+  <title>Crafter · ZeroHero</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main aria-label="Crafter">
+    <section class="game-panel">
+      <div class="world-stage"><canvas id="world" width="576" height="576" aria-label="Live Crafter world"></canvas><div id="world-loading" class="stage-overlay"><div class="loader"></div><span id="world-loading-detail">Loading Crafter…</span></div></div>
+      <nav class="bar" aria-label="Game controls">
+        <div class="agent-controls"><button id="run" disabled aria-label="Run agent" title="Run agent">▶</button><button id="step" disabled aria-label="One agent step" title="One agent step">↦</button><button id="stop" disabled aria-label="Stop agent" title="Stop agent">■</button><button id="new-world" disabled aria-label="New random world" title="New random world">↻</button></div>
+        <div class="readout"><span id="world-step">STEP 0</span><strong id="last-action">—</strong></div>
+        <details class="drawer"><summary aria-label="Settings" title="Settings">···</summary><div class="drawer-content">
+          <div class="drawer-heading"><span>Crafter · ZeroHero 5M</span><span id="achievement-count">0 / 22</span></div>
+          <div class="statuses"><span id="world-status" role="status">Loading game…</span><span id="model-status" class="status" role="status">Loads on ▶</span></div>
+          <div class="settings-content">
+            <div class="model-settings"><span class="setting-label">Checkpoint</span><span class="checkpoint">PPO · iteration 300</span><p id="model-detail">5M parameters · 23.3 MiB · downloads when you press ▶</p></div>
+            <label>Sampling<select id="temperature"><option value="1" selected>Temperature 1</option><option value="0">Greedy</option></select></label>
+            <label>Token limit<select id="token-limit"><option value="256">256</option><option value="512">512</option><option value="1024" selected>1,024</option></select></label>
+            <div class="reset"><label for="seed">World seed</label><div><input id="seed" type="number" min="0" max="2147483647" value="103000000"><button id="reset" disabled>Reset</button></div></div>
+          </div>
+          <details class="manual"><summary>Manual control <small>WASD / arrows · Space</small></summary><div class="manual-buttons"><button data-action="Move West" disabled aria-label="Move west">←</button><button data-action="Move North" disabled aria-label="Move north">↑</button><button data-action="Move South" disabled aria-label="Move south">↓</button><button data-action="Move East" disabled aria-label="Move east">→</button><button data-action="Do" disabled>Interact</button><select id="manual-action" aria-label="Crafting or other action" disabled></select><button id="manual-go" disabled>Do</button></div></details>
+          <details class="observation"><summary>Observation</summary><pre id="observation">Loading observation…</pre></details>
+          <div class="world-details"><span id="world-seed">SEED 103000000</span><div id="vitals" class="vitals" aria-label="Player inventory"></div></div>
+          <div id="achievement-list" class="achievement-list"></div>
+        </div></details>
+      </nav>
+    </section>
+    <aside class="reasoning" aria-label="Model reasoning">
+      <div class="reasoning-heading"><span>Reasoning</span><span id="token-stats"></span></div>
+      <div class="response-wrap"><pre id="response">Press ▶ to download the model and run the agent.</pre><div id="thinking" class="thinking" hidden><i></i><span>Reading the world…</span></div></div>
+      <small id="action-note"></small>
+    </aside>
+    <div id="notice" class="notice" role="alert" hidden></div>
+  </main>
+  <script type="module" src="./built/app.js"></script>
+</body>
+</html>

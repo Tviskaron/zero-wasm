@@ -52,6 +52,7 @@ source checkout.
 | SciPy 1.14.1 | [Bundled package and component notices](licenses/scipy/) |
 | [OpenBLAS 0.3.26](https://github.com/OpenMathLib/OpenBLAS/tree/v0.3.26) | [BSD terms](licenses/OpenBLAS-LICENSE.txt) |
 | [esbuild 0.25.12](https://github.com/evanw/esbuild/tree/v0.25.12) | [MIT](licenses/esbuild-LICENSE.txt) |
+| [Inter, via @fontsource-variable/inter 5.3.0](https://github.com/rsms/inter) | [SIL Open Font License 1.1](licenses/Inter-LICENSE.txt) |
 
 NumPy, Pillow, and SciPy notices were copied from the exact vendored Pyodide
 wheels. Hugging Face and esbuild licenses were copied from matching installed

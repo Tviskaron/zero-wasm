@@ -4767,7 +4767,8 @@ async function generate(message) {
       logits = await forward([token]);
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    output = { type: "result", id: activeId, text: tokenizer.decode(generated, { skip_special_tokens: true, clean_up_tokenization_spaces: false }), tokens: generated.length, seconds: (performance.now() - start) / 1e3, cancelled, capHit: capHit && !finished, samplingSeed: message.samplingSeed ?? null };
+    const text = generated.length ? tokenizer.decode(generated, { skip_special_tokens: true, clean_up_tokenization_spaces: false }) : "";
+    output = { type: "result", id: activeId, text, tokens: generated.length, seconds: (performance.now() - start) / 1e3, cancelled, capHit: capHit && !finished, samplingSeed: message.samplingSeed ?? null };
   } finally {
     logits?.dispose();
     dispose(cache);

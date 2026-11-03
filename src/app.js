@@ -1,6 +1,8 @@
 import { ResponseView } from './response-view.js';
 
 const $ = (id) => document.getElementById(id);
+// vision.html runs the 12.6M screen student instead of the 5M text agent; the game and controls are shared.
+const VISION = document.body?.dataset?.agent === 'vision';
 const responseView = new ResponseView($('response'), document.querySelector('.response-wrap'));
 const worldWorker = new Worker(new URL('./world-worker.js', import.meta.url), { type: 'module' });
 let modelWorker = null;
@@ -83,7 +85,9 @@ function renderWorld(next) {
     : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $('achievement-count').textContent = `${achievements.length} of 22`;
   $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';
-  $('observation').textContent = `${next.text.long_term_context}\n${next.text.short_term_context}`;
+  $('observation').textContent = VISION
+    ? `The model sees only the game screen and this line:\n${accomplishedLine(next.stats.achievements)}`
+    : `${next.text.long_term_context}\n${next.text.short_term_context}`;
   if (!$('manual-action').options.length) {
     for (const action of next.actions) {
       const option = document.createElement('option');
@@ -98,6 +102,12 @@ function renderWorld(next) {
     $('action-note').textContent = `reward ${Number(next.reward).toFixed(2)}${next.invalid ? ', invalid output, used Noop' : ''}${next.done ? ', episode finished' : ''}`;
     $('action-note').title = $('action-note').textContent;
   }
+}
+
+// The vision student's text input, as in its training data: sorted achievement names.
+function accomplishedLine(achievements) {
+  const names = Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+  return 'Accomplished achievements: ' + (names.length ? names.join(', ') : 'none');
 }
 
 function manualAction(action) {
@@ -122,7 +132,11 @@ function generate() {
   $('thinking').hidden = false;
   $('thinking').querySelector('span').textContent = 'Processing the observation…';
   $('token-stats').textContent = 'Tokenizing observation…';
-  modelWorker.postMessage({
+  modelWorker.postMessage(VISION ? {
+    type: 'generate', id: requestId, frame: world.frame, accomplished: accomplishedLine(world.stats.achievements),
+    maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
+    samplingSeed: world.sampling.seed, samplingDraws: world.sampling.draws,
+  } : {
     type: 'generate', id: requestId, instructions: world.instructions,
     text: world.text, history: world.history || [], prompt: world.prompt,
     maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
@@ -219,11 +233,11 @@ function loadDefaultModel() {
   $('model-loading-progress').removeAttribute('value');
   controls();
   try {
-    const worker = new Worker(new URL('./model-worker.js', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL(VISION ? './vision-worker.js' : './model-worker.js', import.meta.url), { type: 'module' });
     modelWorker = worker;
     worker.onmessage = ({ data }) => handleModelMessage(worker, data);
     worker.onerror = (event) => modelFailure(worker, event.message);
-    worker.postMessage({ type: 'load', model: 'ppo' });
+    worker.postMessage({ type: 'load', model: VISION ? 'vision-ppo' : 'ppo' });
   } catch (error) {
     modelFailure(modelWorker, error.message);
   }
@@ -255,7 +269,8 @@ function handleModelMessage(worker, data) {
     modelReady = true;
     loadingStatus('model', 'Ready', 'ready');
     $('model-loading-progress').hidden = true;
-    $('model-detail').textContent = `${data.manifest.label}, FP32, 5,033,600 parameters, ${data.threads} thread${data.threads === 1 ? '' : 's'}`;
+    const parameters = (data.manifest.parameters ?? 5033600).toLocaleString('en-US');
+    $('model-detail').textContent = `${data.manifest.label}, FP32, ${parameters} parameters, ${data.threads} thread${data.threads === 1 ? '' : 's'}`;
     controls();
     if (autoplay) generate();
   } else if (data.id !== null && data.id !== requestId) {
@@ -374,6 +389,10 @@ function requestReset(seed) {
 }
 
 $('reset').onclick = () => requestReset(Number($('seed').value));
+$('agent').onchange = () => {
+  // Each agent has its own page; both load the same game.
+  location.href = $('agent').value === 'vision' ? './vision.html' : './';
+};
 $('show-stats').onchange = () => {
   $('token-stats').hidden = !$('show-stats').checked;
   $('action-footer').hidden = !$('show-stats').checked;

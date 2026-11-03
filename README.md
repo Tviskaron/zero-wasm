@@ -47,6 +47,23 @@ availability across reloads is not guaranteed. A modern browser with WASM and
 SIMD support is required. GitHub Pages does not provide COOP/COEP isolation;
 the hosted demo therefore uses the supported single-thread inference fallback.
 
+## Vision agent
+
+`vision.html` (or **Agent** in the settings) runs a second agent on the same game:
+a 12.6M-parameter (12,593,280) Qwen3-VL screen student, initialized randomly,
+trained to imitate Qwen Next's reasoning and actions, then with PPO. Each step
+it sees only the 256×256 game screen and the line
+`Accomplished achievements: …`; it gets no text observation and no history. It
+writes its reasoning and a final `ACTION: <name>` line. This checkpoint is the
+best PPO checkpoint at 1.23M environment steps (a 100-episode rolling mean of
+12.69 achievements in fresh training worlds when it was selected, which makes it
+optimistic); after PPO its reasoning is short and often empty. The model is two
+ONNX graphs (vision encoder 29 MiB, decoder with KV cache 23.3 MiB) in
+[`assets/models/vision-ppo/`](assets/models/vision-ppo/), whose manifest records
+checksums, export checks and provenance; the page verifies both checksums before
+loading. Sampling masks the four multimodal marker tokens, as in PPO training.
+The default token limit is 512, the PPO training cap.
+
 ## Deployment and provenance
 
 The `main` branch contains the source, model assets, tests, and build workflow.

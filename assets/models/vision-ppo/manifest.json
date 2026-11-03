@@ -1,0 +1,60 @@
+{
+  "system": "You play Crafter from the game screen. Think about the best course of action step by step, then finish with one line: ACTION: <action>",
+  "layers": 6,
+  "kv_heads": 4,
+  "head_dim": 32,
+  "hidden": 256,
+  "vision_tokens": 64,
+  "image_token_id": 4096,
+  "vision_start_id": 4097,
+  "vision_end_id": 4098,
+  "eos_token_id": 2,
+  "context": 4096,
+  "patch": {
+    "size": 16,
+    "merge": 2,
+    "temporal": 2,
+    "mean": 0.5,
+    "std": 0.5,
+    "image": 256
+  },
+  "tokenizer_check": {
+    "text": "System:\nYou play Crafter.\nUser:\n",
+    "ids": [
+      53,
+      91,
+      1576,
+      28,
+      201,
+      322,
+      615,
+      610,
+      16,
+      201,
+      2367,
+      28,
+      201
+    ]
+  },
+  "validation": {
+    "errors": {
+      "vision": 1.52587890625e-05,
+      "prefill_logits": 9.5367431640625e-06
+    },
+    "greedy_tokens_checked": 24,
+    "reference": "Transformers 4.57.1 eager FP32"
+  },
+  "vision_sha256": "f1b21c3f7bc44fde841fc071598c0d23a92b197869f14bd9d0ed4d0e206d00af",
+  "decoder_sha256": "34e8bdee3de6ef87fcc7dbfeb067475e7529e16869baaf98cd24e3d1d3d3f586",
+  "label": "Vision PPO, 1.23M env steps",
+  "parameters": 12593280,
+  "vision_bytes": 30370384,
+  "decoder_bytes": 24478266,
+  "provenance": {
+    "model": "Random-init Qwen3-VL screen student (text width 256, 6 layers; vision 4 layers), supervised on Qwen Next reasoning, then PPO",
+    "training": "Sample Factory PPO on native CUDA Crafter worlds, length-normalized (GSPO) response ratio, -0.1 penalty for answers without an action",
+    "checkpoint": "best checkpoint at 4,800 learner steps, 1,228,800 env steps (100-episode rolling mean 12.69 when selected; selection makes this optimistic)",
+    "input": "the 256x256 game screen and the accomplished-achievements line only; no text observation, no history",
+    "export": "zerohero/crafter_student_wasm.py: vision and KV-cache decoder ONNX graphs, checked against Transformers before writing"
+  }
+}

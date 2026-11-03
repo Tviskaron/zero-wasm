@@ -117,6 +117,7 @@ var ResponseView = class {
 
 // src/app.js
 var $ = (id) => document.getElementById(id);
+var VISION = document.body?.dataset?.agent === "vision";
 var responseView = new ResponseView($("response"), document.querySelector(".response-wrap"));
 var worldWorker = new Worker(new URL("./world-worker.js", import.meta.url), { type: "module" });
 var modelWorker = null;
@@ -194,7 +195,8 @@ function renderWorld(next) {
   $("episode-end-detail").textContent = next.truncated ? `Episode ended by time: ${next.episodeLimit ?? 256} steps. ${achievements.length}/22 achievements.` : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $("achievement-count").textContent = `${achievements.length} of 22`;
   $("achievement-list").textContent = achievements.length ? achievements.map(([name]) => name.replaceAll("_", " ")).join(", ") : "None yet";
-  $("observation").textContent = `${next.text.long_term_context}
+  $("observation").textContent = VISION ? `The model sees only the game screen and this line:
+${accomplishedLine(next.stats.achievements)}` : `${next.text.long_term_context}
 ${next.text.short_term_context}`;
   if (!$("manual-action").options.length) {
     for (const action of next.actions) {
@@ -210,6 +212,10 @@ ${next.text.short_term_context}`;
     $("action-note").textContent = `reward ${Number(next.reward).toFixed(2)}${next.invalid ? ", invalid output, used Noop" : ""}${next.done ? ", episode finished" : ""}`;
     $("action-note").title = $("action-note").textContent;
   }
+}
+function accomplishedLine(achievements) {
+  const names = Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+  return "Accomplished achievements: " + (names.length ? names.join(", ") : "none");
 }
 function manualAction(action) {
   if (!worldReady || busy || autoplay || world.done) return;
@@ -232,7 +238,16 @@ function generate() {
   $("thinking").hidden = false;
   $("thinking").querySelector("span").textContent = "Processing the observation\u2026";
   $("token-stats").textContent = "Tokenizing observation\u2026";
-  modelWorker.postMessage({
+  modelWorker.postMessage(VISION ? {
+    type: "generate",
+    id: requestId,
+    frame: world.frame,
+    accomplished: accomplishedLine(world.stats.achievements),
+    maxNewTokens: Number($("token-limit").value),
+    temperature: Number($("temperature").value),
+    samplingSeed: world.sampling.seed,
+    samplingDraws: world.sampling.draws
+  } : {
     type: "generate",
     id: requestId,
     instructions: world.instructions,
@@ -328,11 +343,11 @@ function loadDefaultModel() {
   $("model-loading-progress").removeAttribute("value");
   controls();
   try {
-    const worker = new Worker(new URL("./model-worker.js", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL(VISION ? "./vision-worker.js" : "./model-worker.js", import.meta.url), { type: "module" });
     modelWorker = worker;
     worker.onmessage = ({ data }) => handleModelMessage(worker, data);
     worker.onerror = (event) => modelFailure(worker, event.message);
-    worker.postMessage({ type: "load", model: "ppo" });
+    worker.postMessage({ type: "load", model: VISION ? "vision-ppo" : "ppo" });
   } catch (error) {
     modelFailure(modelWorker, error.message);
   }
@@ -362,7 +377,8 @@ function handleModelMessage(worker, data) {
     modelReady = true;
     loadingStatus("model", "Ready", "ready");
     $("model-loading-progress").hidden = true;
-    $("model-detail").textContent = `${data.manifest.label}, FP32, 5,033,600 parameters, ${data.threads} thread${data.threads === 1 ? "" : "s"}`;
+    const parameters = (data.manifest.parameters ?? 5033600).toLocaleString("en-US");
+    $("model-detail").textContent = `${data.manifest.label}, FP32, ${parameters} parameters, ${data.threads} thread${data.threads === 1 ? "" : "s"}`;
     controls();
     if (autoplay) generate();
   } else if (data.id !== null && data.id !== requestId) {
@@ -477,6 +493,9 @@ function requestReset(seed) {
   controls();
 }
 $("reset").onclick = () => requestReset(Number($("seed").value));
+$("agent").onchange = () => {
+  location.href = $("agent").value === "vision" ? "./vision.html" : "./";
+};
 $("show-stats").onchange = () => {
   $("token-stats").hidden = !$("show-stats").checked;
   $("action-footer").hidden = !$("show-stats").checked;

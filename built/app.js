@@ -494,7 +494,7 @@ function requestReset(seed) {
 }
 $("reset").onclick = () => requestReset(Number($("seed").value));
 $("agent").onchange = () => {
-  location.href = $("agent").value === "vision" ? "./vision.html" : "./";
+  location.href = $("agent").value === "vision" ? "./" : "./text.html";
 };
 $("show-stats").onchange = () => {
   $("token-stats").hidden = !$("show-stats").checked;

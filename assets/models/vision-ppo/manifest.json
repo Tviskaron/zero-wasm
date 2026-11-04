@@ -38,24 +38,31 @@
   },
   "validation": {
     "errors": {
-      "vision": 1.52587890625e-05,
-      "prefill_logits": 9.5367431640625e-06
+      "vision": 2.86102294921875e-05,
+      "prefill_logits": 5.7220458984375e-06
     },
-    "greedy_tokens_checked": 24,
+    "greedy_tokens_checked": 15,
     "reference": "Transformers 4.57.1 eager FP32"
   },
-  "vision_sha256": "f1b21c3f7bc44fde841fc071598c0d23a92b197869f14bd9d0ed4d0e206d00af",
-  "decoder_sha256": "34e8bdee3de6ef87fcc7dbfeb067475e7529e16869baaf98cd24e3d1d3d3f586",
-  "label": "Vision PPO, 1.23M env steps",
+  "vision_sha256": "cfc3a50e82153103efbe31ed6fe76adae42492bbf703d1673ecf7ec1a72871bd",
+  "decoder_sha256": "bfbd1a91c407e908044c36894cbf1775096ee21f677960157cab68826a840cb9",
+  "label": "Vision PPO, 2.65M env steps",
   "parameters": 12593280,
   "vision_bytes": 30370384,
   "decoder_bytes": 24478266,
   "provenance": {
     "model": "Random-init Qwen3-VL screen student (text width 256, 6 layers; vision 4 layers), supervised on Qwen Next reasoning, then PPO",
-    "training": "Sample Factory PPO on native CUDA Crafter worlds, length-normalized (GSPO) response ratio, -0.1 penalty for answers without an action",
-    "checkpoint": "best checkpoint at 4,800 learner steps, 1,228,800 env steps (100-episode rolling mean 12.69 when selected)",
-    "held_out": "13.19 mean achievements on 128 fixed held-out worlds (Crafter seeds 150000000-150000127, temperature 1, 512-token answers); the supervised start scores 6.39 on the same worlds",
+    "training": "Sample Factory PPO on native CUDA Crafter worlds, length-normalized (GSPO) response ratio. Continued from the 1.23M-step checkpoint with Crafter's standard reward (+1 per new achievement, +0.1 per health point gained, -0.1 per point lost), -0.1 for answers without an action, 256-token answers, actor learning rate 7.5e-6",
+    "checkpoint": "learner step 10,336, 2,646,016 env steps: the best held-out score among the evaluated checkpoints of this run",
+    "held_out": "14.54 ± 0.13 mean achievements on 128 fixed held-out worlds x 3 sampling seeds (Crafter seeds 150000000-150000127, temperature 1, 512-token answers, native CUDA Crafter tested to reproduce the original's states and screens); the 1.23M-step checkpoint scores 12.98 ± 0.15 on the same evaluation",
     "input": "the 256x256 game screen and the accomplished-achievements line only; no text observation, no history",
-    "export": "zerohero/crafter_student_wasm.py: vision and KV-cache decoder ONNX graphs, checked against Transformers before writing"
+    "export": "zerohero/crafter_student_wasm.py: vision and KV-cache decoder ONNX graphs, checked against Transformers before writing",
+    "source_weights_sha256": "f4b8234b8343b299bc77dd7d2148582eb7394389a7afb2e4471d6d80742beb05",
+    "sample_factory_checkpoint_sha256": "65033b29bf7b9e5d2b82f88d6a75c647623f5c8200a430c308d5e0bc59758568",
+    "replaces": {
+      "label": "Vision PPO, 1.23M env steps",
+      "vision_sha256": "f1b21c3f7bc44fde841fc071598c0d23a92b197869f14bd9d0ed4d0e206d00af",
+      "decoder_sha256": "34e8bdee3de6ef87fcc7dbfeb067475e7529e16869baaf98cd24e3d1d3d3f586"
+    }
   }
 }

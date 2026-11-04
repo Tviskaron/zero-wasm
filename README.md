@@ -55,9 +55,11 @@ trained to imitate Qwen Next's reasoning and actions, then with PPO. Each step
 it sees only the 256×256 game screen and the line
 `Accomplished achievements: …`; it gets no text observation and no history. It
 writes its reasoning and a final `ACTION: <name>` line. This checkpoint is the
-best PPO checkpoint at 1.23M environment steps (a 100-episode rolling mean of
-12.69 achievements in fresh training worlds when it was selected, which makes it
-optimistic); after PPO its reasoning is short and often empty. The model is two
+best PPO checkpoint at 1.23M environment steps. On 128 fixed held-out worlds
+(temperature 1) it scores 13.19 achievements per game, against 6.39 before PPO
+(its 100-episode training mean was 12.69 when it was selected). Training it
+further, to 2.06M and 5.86M steps, scored lower on the same worlds (12.30 and
+11.85). After PPO its reasoning is short and often empty. The model is two
 ONNX graphs (vision encoder 29 MiB, decoder with KV cache 23.3 MiB) in
 [`assets/models/vision-ppo/`](assets/models/vision-ppo/), whose manifest records
 checksums, export checks and provenance; the page verifies both checksums before

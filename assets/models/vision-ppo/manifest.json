@@ -53,7 +53,8 @@
   "provenance": {
     "model": "Random-init Qwen3-VL screen student (text width 256, 6 layers; vision 4 layers), supervised on Qwen Next reasoning, then PPO",
     "training": "Sample Factory PPO on native CUDA Crafter worlds, length-normalized (GSPO) response ratio, -0.1 penalty for answers without an action",
-    "checkpoint": "best checkpoint at 4,800 learner steps, 1,228,800 env steps (100-episode rolling mean 12.69 when selected; selection makes this optimistic)",
+    "checkpoint": "best checkpoint at 4,800 learner steps, 1,228,800 env steps (100-episode rolling mean 12.69 when selected)",
+    "held_out": "13.19 mean achievements on 128 fixed held-out worlds (Crafter seeds 150000000-150000127, temperature 1, 512-token answers); the supervised start scores 6.39 on the same worlds",
     "input": "the 256x256 game screen and the accomplished-achievements line only; no text observation, no history",
     "export": "zerohero/crafter_student_wasm.py: vision and KV-cache decoder ONNX graphs, checked against Transformers before writing"
   }

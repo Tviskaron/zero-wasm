@@ -1,7 +1,7 @@
 import { ResponseView } from './response-view.js';
 
 const $ = (id) => document.getElementById(id);
-// vision.html runs the 12.6M screen student instead of the 5M text agent; the game and controls are shared.
+// index.html runs the 12.6M screen student, text.html the 5M text agent; the game and controls are shared.
 const VISION = document.body?.dataset?.agent === 'vision';
 const responseView = new ResponseView($('response'), document.querySelector('.response-wrap'));
 const worldWorker = new Worker(new URL('./world-worker.js', import.meta.url), { type: 'module' });
@@ -391,7 +391,7 @@ function requestReset(seed) {
 $('reset').onclick = () => requestReset(Number($('seed').value));
 $('agent').onchange = () => {
   // Each agent has its own page; both load the same game.
-  location.href = $('agent').value === 'vision' ? './vision.html' : './';
+  location.href = $('agent').value === 'vision' ? './' : './text.html';
 };
 $('show-stats').onchange = () => {
   $('token-stats').hidden = !$('show-stats').checked;

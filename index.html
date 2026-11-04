@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#fafaf9">
-  <title>ZeroHero 5M in Crafter</title>
-  <meta name="description" content="A 5M-parameter Crafter agent. The game and the model run locally in your browser using WebAssembly.">
+  <title>ZeroHero vision 12.6M in Crafter</title>
+  <meta name="description" content="A 12.6M-parameter vision Crafter agent that plays from the game screen. The game and the model run locally in your browser using WebAssembly.">
   <link rel="preload" href="./vendor/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./styles.css">
 </head>
-<body>
+<body data-agent="vision">
   <main aria-label="Crafter">
     <header class="top">
-      <h1>ZeroHero 5M in Crafter</h1>
+      <h1>ZeroHero vision 12.6M in Crafter</h1>
       <span class="seed" title="Current world seed">World seed <b id="world-seed">0</b></span>
     </header>
 
@@ -21,7 +21,7 @@
         <canvas id="world" width="576" height="576" aria-label="Live Crafter world"></canvas>
         <div id="world-loading" class="stage-overlay" role="status" aria-label="Game and model loading">
           <div id="world-loading-row" class="loading-row" data-state="loading"><span class="loader" aria-hidden="true"></span><div><strong>Game</strong><span id="world-loading-detail">Loading Crafter…</span></div></div>
-          <div id="model-loading-row" class="loading-row" data-state="loading"><span class="loader" aria-hidden="true"></span><div><strong>Default model · PPO</strong><span id="model-loading-detail">Loading the default model…</span><progress id="model-loading-progress" max="1" aria-label="Model download progress" hidden></progress></div></div>
+          <div id="model-loading-row" class="loading-row" data-state="loading"><span class="loader" aria-hidden="true"></span><div><strong>Vision model, PPO</strong><span id="model-loading-detail">Loading the default model…</span><progress id="model-loading-progress" max="1" aria-label="Model download progress" hidden></progress></div></div>
         </div>
         <div id="episode-end" class="stage-overlay episode-end" role="status" aria-label="Episode result" hidden>
           <h2 id="episode-end-title">Game over</h2>
@@ -40,11 +40,11 @@
         <details class="drawer"><summary aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></summary><div class="drawer-content">
           <section class="drawer-section">
             <h2>Model</h2>
-            <label class="field">Agent<select id="agent"><option value="text" selected>Text 5M, PPO iteration 300</option><option value="vision">Vision 12.6M, PPO (screen only)</option></select></label>
-            <p id="model-detail" class="hint" role="status">5M parameters, 23.3 MiB. Loading automatically.</p>
+            <label class="field">Agent<select id="agent"><option value="text">Text 5M, PPO iteration 300</option><option value="vision" selected>Vision 12.6M, PPO (screen only)</option></select></label>
+            <p id="model-detail" class="hint" role="status">12.6M parameters, 52 MiB. Loading automatically.</p>
             <div class="field-row">
               <label class="field">Sampling<select id="temperature"><option value="1" selected>Temperature 1</option><option value="0">Greedy</option></select></label>
-              <label class="field">Token limit<select id="token-limit"><option value="256">256</option><option value="512">512</option><option value="1024" selected>1,024</option></select></label>
+              <label class="field">Token limit<select id="token-limit"><option value="256">256</option><option value="512" selected>512</option><option value="1024">1,024</option></select></label>
             </div>
             <label class="field spaced">Delay between steps<select id="step-delay"><option value="0">None</option><option value="250">0.25 s</option><option value="500" selected>0.5 s</option><option value="1000">1 s</option><option value="2000">2 s</option></select></label>
             <label class="toggle"><input id="show-stats" type="checkbox">Show token and reward stats</label>
@@ -59,16 +59,16 @@
             <div id="achievement-list" class="achievement-list"></div>
           </section>
           <details class="manual"><summary><span>Manual control</span><small>WASD, Space</small></summary><div class="manual-buttons"><button data-action="Move West" disabled aria-label="Move west"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button><button data-action="Move North" disabled aria-label="Move north"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button><button data-action="Move South" disabled aria-label="Move south"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button><button data-action="Move East" disabled aria-label="Move east"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button><button data-action="Do" disabled>Interact</button><select id="manual-action" aria-label="Crafting or other action" disabled></select><button id="manual-go" disabled>Do</button></div></details>
-          <details class="observation"><summary><span>Observation</span></summary><pre id="observation">Loading observation…</pre></details>
+          <details class="observation"><summary><span>Model input</span></summary><pre id="observation">Loading observation…</pre></details>
         </div></details>
       </nav>
     </section>
 
     <aside class="reasoning" aria-label="Model reasoning">
       <div id="token-stats" class="token-stats" hidden></div>
-      <div class="response-wrap"><pre id="response">The game and default model load together. Press Run to start the agent, or Step for one decision.
+      <div class="response-wrap"><pre id="response">The game and the vision model load together. Press Run to start the agent, or Step for one decision.
 
-The game and the model run locally in this browser tab using WebAssembly, so every step is computed live on your computer.</pre><div id="thinking" class="thinking" hidden><i></i><span>Processing the observation…</span></div></div>
+This agent sees only the game screen and the list of accomplished achievements. It writes its reasoning, then one line ACTION: name. It was trained by imitating Qwen Next and then with PPO. Everything runs locally in this browser tab using WebAssembly.</pre><div id="thinking" class="thinking" hidden><i></i><span>Reading the screen…</span></div></div>
       <footer id="action-footer" class="action-footer" hidden><span>Action: <strong id="last-action">none</strong></span><small id="action-note"></small></footer>
     </aside>
 

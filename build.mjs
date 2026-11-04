@@ -105,7 +105,7 @@ if (!process.argv.includes('--assets-only')) {
     sourcemap: false,
     logLevel: 'info',
   });
-  for (const name of ['index.html', 'vision.html', 'styles.css', 'THIRD_PARTY_NOTICES.md']) {
+  for (const name of ['index.html', 'text.html', 'vision.html', 'styles.css', 'THIRD_PARTY_NOTICES.md']) {
     await copyFile(path.join(root, name), path.join(output, name));
   }
   await cp(path.join(root, 'assets'), path.join(output, 'assets'), { recursive: true });

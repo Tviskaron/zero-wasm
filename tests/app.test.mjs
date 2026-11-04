@@ -8,7 +8,7 @@ import { ResponseView } from '../src/response-view.js';
 // The DOM harness has no layout engine; browser checks cover resize behavior.
 globalThis.ResizeObserver = class { observe() {} };
 
-const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const html = await readFile(new URL('../text.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
   .replace("import { ResponseView } from './response-view.js';", '')
   .replaceAll('import.meta.url', JSON.stringify('https://tviskaron.github.io/zero-wasm/built/app.js'));

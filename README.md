@@ -1,11 +1,14 @@
-# ZeroHero 5M in Crafter
+# ZeroHero in Crafter
 
 [Open the demo](https://tviskaron.github.io/zero-wasm/).
 
-Crafter and a 5-million-parameter language agent running in the browser through
-WebAssembly. The game uses original Crafter 1.8.3 with BALROG observations; the
-agent uses the published ZeroHero PPO iteration-300 checkpoint. There is no
-Python server, inference API, or training code in this standalone repository.
+Crafter and small language agents running in the browser through WebAssembly.
+The game is original Crafter 1.8.3. The demo opens with the 12.6M-parameter
+[vision agent](#vision-agent), which plays from the game screen. The
+5-million-parameter text agent (the published ZeroHero PPO iteration-300
+checkpoint, on BALROG observations) is on `text.html`, or choose it under
+**Agent** in the settings. There is no Python server, inference API, or training
+code in this standalone repository.
 
 ## Run locally
 
@@ -20,11 +23,11 @@ npm start
 Open <http://127.0.0.1:8787>. The build downloads the pinned runtime dependencies
 and writes the static site to `dist/`; it does not train or evaluate a model.
 
-Opening the page loads the Crafter WASM environment and the default PPO ONNX
-model (23.3 MiB) in parallel. Both loading states and model download progress
-appear on the game screen. Once ready, press **Run** to start the agent or
-**Step** for one decision. Loading alone never starts play. Only the default
-PPO checkpoint is preloaded. Game simulation and inference execute in browser workers. Use
+Opening a page loads the Crafter WASM environment and that page's model in
+parallel (vision agent 52 MiB, text agent 23.3 MiB). Both loading states and model
+download progress appear on the game screen. Once ready, press **Run** to start the
+agent or **Step** for one decision. Loading alone never starts play. Only the
+page's own model is loaded. Game simulation and inference execute in browser workers. Use
 **Stop** to pause, **Reset** for a new world, or arrow keys/WASD and Space for
 manual movement and interaction.
 
@@ -49,22 +52,28 @@ the hosted demo therefore uses the supported single-thread inference fallback.
 
 ## Vision agent
 
-`vision.html` (or **Agent** in the settings) runs a second agent on the same game:
+The default page (`index.html`; the old `vision.html` link redirects to it) runs
 a 12.6M-parameter (12,593,280) Qwen3-VL screen student, initialized randomly,
 trained to imitate Qwen Next's reasoning and actions, then with PPO. Each step
 it sees only the 256×256 game screen and the line
 `Accomplished achievements: …`; it gets no text observation and no history. It
-writes its reasoning and a final `ACTION: <name>` line. This checkpoint is the
-best PPO checkpoint at 1.23M environment steps. On 128 fixed held-out worlds
-(temperature 1) it scores 13.19 achievements per game, against 6.39 before PPO
-(its 100-episode training mean was 12.69 when it was selected). Training it
-further, to 2.06M and 5.86M steps, scored lower on the same worlds (12.30 and
-11.85). After PPO its reasoning is short and often empty. The model is two
+writes its reasoning and a final `ACTION: <name>` line.
+
+This checkpoint is at 2.65M environment steps. PPO first ran to 1.23M steps with
+a reward of 1 per new achievement (the previous demo checkpoint), then continued
+with Crafter's standard reward (also +0.1 per health point gained and -0.1 per
+point lost) and 256-token answers; this is the continuation's best checkpoint on
+the held-out worlds. On 128 fixed held-out worlds with 3 sampling seeds each
+(temperature 1, 512-token answers) it scores 14.54 ± 0.13 achievements per game,
+against 12.98 ± 0.15 for the 1.23M checkpoint on the same evaluation. The largest
+gains are placing a furnace (49% to 81% of games), defeating a skeleton (52% to 65%)
+and collecting iron (21% to 41%); it still almost never sleeps and does not make
+iron tools. After PPO its reasoning is short and often empty. The model is two
 ONNX graphs (vision encoder 29 MiB, decoder with KV cache 23.3 MiB) in
 [`assets/models/vision-ppo/`](assets/models/vision-ppo/), whose manifest records
 checksums, export checks and provenance; the page verifies both checksums before
 loading. Sampling masks the four multimodal marker tokens, as in PPO training.
-The default token limit is 512, the PPO training cap.
+The default token limit is 512, as in the held-out evaluation.
 
 ## Deployment and provenance
 

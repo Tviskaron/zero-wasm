@@ -1,5 +1,6 @@
-// The 12.6M screen student (random-init Qwen3-VL, supervised on Qwen Next reasoning, then PPO) in ONNX WebAssembly.
-// Input: the 256x256 game screen and the accomplished-achievements line. Output: reasoning, then ACTION.
+// The 12.6M screen students (random-init Qwen3-VL, supervised on Qwen Next reasoning, then PPO) in ONNX WebAssembly.
+// Input: the 256x256 game screen and the text after it (the accomplished-achievements line, and for the memory
+// student its carried memory). Output: reasoning, then the action (and the memory student's new memory).
 import * as ort from 'onnxruntime-web/wasm';
 import { Tokenizer } from '@huggingface/tokenizers';
 import { sample } from './sampling.js';
@@ -13,7 +14,7 @@ let cancelled = false;
 let loading = false;
 const threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 const siteRoot = new URL('../', import.meta.url);
-const modelRoot = new URL('assets/models/vision-ppo/', siteRoot);
+let modelRoot = new URL('assets/models/vision-ppo/', siteRoot);
 ort.env.wasm.wasmPaths = new URL('vendor/ort/', siteRoot).href;
 ort.env.wasm.numThreads = threads;
 ort.env.wasm.proxy = false;
@@ -61,8 +62,10 @@ async function downloadAll(files) {
   }));
 }
 
-async function load() {
+async function load(model = 'vision-ppo') {
   if (loading || activeId !== null) throw new Error('The model is busy.');
+  if (!/^[a-z-]+$/.test(model)) throw new Error('Unknown vision model');
+  modelRoot = new URL(`assets/models/${model}/`, siteRoot);
   loading = true;
   try {
     status('Downloading the vision model…');
@@ -168,7 +171,9 @@ async function generate(message) {
     const pos = positions(ids);
     let lastPosition = Math.max(...pos.flat());
 
-    async function forward(tokens, positionRows, maskRows, embedRows, d0, d1) {
+    // One decoder call on top of the key/value cache `past` (left untouched): the last position's logits and the
+    // extended cache.
+    async function run(tokens, positionRows, maskRows, embedRows, d0, d1, past) {
       const n = tokens.length;
       const feeds = {
         input_ids: keep(new ort.Tensor('int64', BigInt64Array.from(tokens, BigInt), [1, n])),
@@ -178,12 +183,62 @@ async function generate(message) {
         deepstack_0: keep(new ort.Tensor('float32', d0, [1, n, H])),
         deepstack_1: keep(new ort.Tensor('float32', d1, [1, n, H])),
       };
-      for (let i = 0; i < L; i += 1) { feeds[`past_key_${i}`] = cache[2 * i]; feeds[`past_value_${i}`] = cache[2 * i + 1]; }
+      for (let i = 0; i < L; i += 1) { feeds[`past_key_${i}`] = past[2 * i]; feeds[`past_value_${i}`] = past[2 * i + 1]; }
       const result = await decoder.run(feeds);
+      const present = [];
+      for (let i = 0; i < L; i += 1) present.push(result[`present_key_${i}`], result[`present_value_${i}`]);
+      return { logits: result.logits, cache: present };
+    }
+
+    async function forward(tokens, positionRows, maskRows, embedRows, d0, d1) {
+      const result = await run(tokens, positionRows, maskRows, embedRows, d0, d1, cache);
       cache.forEach((t) => t.dispose?.());
-      cache = [];
-      for (let i = 0; i < L; i += 1) cache.push(result[`present_key_${i}`], result[`present_value_${i}`]);
+      cache = result.cache;
       return result.logits;
+    }
+
+    // Probability of every action name where the answer starts its action: each name is scored as a continuation
+    // (the rest of the action marker, the name, then the closing tag or the end of the answer) on top of the cache,
+    // and the scores are normalized over the names. Names share their first tokens ("Move", "Make", "Place"), so the
+    // continuations form a tree and each shared prefix runs once.
+    async function actionDistribution(names, rest, closing, first, past, position) {
+      const sequences = names.map((name) => {
+        const tokens = tokenizer.encode(rest + name + closing.text, { add_special_tokens: false }).ids;
+        return closing.eos ? [...tokens, manifest.eos_token_id] : tokens;
+      });
+      const root = { children: new Map(), ends: [] };
+      sequences.forEach((tokens, index) => {
+        let node = root;
+        for (const token of tokens) {
+          if (!node.children.has(token)) node.children.set(token, { children: new Map(), ends: [] });
+          node = node.children.get(token);
+        }
+        node.ends.push(index);
+      });
+      const scores = new Array(names.length).fill(-Infinity);
+      const zeros = new Float32Array(H);
+      async function visit(node, logp, logits, before, at) {
+        let top = -Infinity;
+        for (let i = 0; i < manifest.image_token_id; i += 1) if (logits[i] > top) top = logits[i];
+        let total = 0;
+        for (let i = 0; i < manifest.image_token_id; i += 1) total += Math.exp(logits[i] - top);
+        const normalizer = top + Math.log(total);
+        for (const [token, child] of node.children) {
+          const value = logp + logits[token] - normalizer;
+          for (const index of child.ends) scores[index] = value;
+          if (child.children.size) {
+            const next = await run([token], [[at + 1], [at + 1], [at + 1]], new Float32Array(1), zeros, zeros, zeros, before);
+            const data = Float32Array.from(next.logits.data);
+            next.logits.dispose?.();
+            await visit(child, value, data, next.cache, at + 1);
+            next.cache.forEach((t) => t.dispose?.());
+          }
+        }
+      }
+      await visit(root, 0, first, past, position);
+      const mass = scores.reduce((sum, value) => sum + Math.exp(value), 0);
+      return { actions: names.map((name, index) => ({ name, p: mass > 0 ? Math.exp(scores[index]) / mass : 0 }))
+        .sort((a, b) => b.p - a.p), mass };
     }
 
     self.postMessage({ type: 'prefill', id: activeId, completed: 0, total: S });
@@ -193,13 +248,32 @@ async function generate(message) {
     const decodeStart = performance.now();
     let finished = false;
     let capHit = false;
+    const names = Array.isArray(message.actions) ? message.actions : [];
+    let scored = names.length === 0;
     for (let i = 0; i < cap && !cancelled; i += 1) {
       // Responses are text: the multimodal marker ids are never valid outputs (PPO trained with this mask).
       logits.data.fill(-Infinity, manifest.image_token_id);
       const token = sample(logits.data, temperature, message.samplingDraws[i]);
+      const here = scored ? null : Float32Array.from(logits.data);  // the distribution this token was drawn from
       logits.dispose();
       if (token === manifest.eos_token_id) { finished = true; break; }
       generated.push(token);
+      if (!scored && /[>:]/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
+        // The answer starts its action with this token: tagged answers "<action>NAME</action>", the screen-only
+        // student "ACTION: NAME" at the end. The rest of the marker comes from this token, then each name.
+        const text = tokenizer.decode(generated, { skip_special_tokens: true });
+        const tagged = text.indexOf('<action>');
+        const plain = text.lastIndexOf('ACTION:');
+        const end = tagged >= 0 ? tagged + '<action>'.length : plain >= 0 ? plain + 'ACTION:'.length : -1;
+        if (end >= 0) {
+          scored = true;
+          const before = tokenizer.decode(generated.slice(0, -1), { skip_special_tokens: true });
+          const rest = text.slice(before.length, end) + (tagged >= 0 ? '' : ' ');
+          const closing = tagged >= 0 ? { text: '</action>', eos: false } : { text: '', eos: true };
+          const result = await actionDistribution(names, rest, closing, here, cache, lastPosition);
+          self.postMessage({ type: 'actions', id: activeId, ...result });
+        }
+      }
       if (i % 4 === 0 || i === cap - 1) {
         self.postMessage({ type: 'tokens', id: activeId, text: tokenizer.decode(generated, { skip_special_tokens: true }),
           tokens: generated.length, tokensPerSecond: generated.length / Math.max(0.001, (performance.now() - decodeStart) / 1000) });
@@ -223,6 +297,6 @@ async function generate(message) {
 
 self.onmessage = ({ data }) => {
   if (data.type === 'cancel') { if (data.id === activeId) cancelled = true; return; }
-  const task = data.type === 'load' ? load() : data.type === 'generate' ? generate(data) : Promise.reject(new Error('Unknown model command'));
+  const task = data.type === 'load' ? load(data.model) : data.type === 'generate' ? generate(data) : Promise.reject(new Error('Unknown model command'));
   task.catch((error) => self.postMessage({ type: 'error', id: data.id ?? null, message: error.stack || String(error) }));
 };

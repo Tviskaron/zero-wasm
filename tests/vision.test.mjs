@@ -9,12 +9,13 @@ import { ResponseView } from '../src/response-view.js';
 globalThis.ResizeObserver = class { observe() {} };
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const memoryHtml = await readFile(new URL('../vision-memory.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
   .replace("import { ResponseView } from './response-view.js';", '')
   .replaceAll('import.meta.url', JSON.stringify('https://tviskaron.github.io/zero-wasm/built/app.js'));
 
-function boot() {
-  const { window, document } = parseHTML(html);
+function boot(page = html) {
+  const { window, document } = parseHTML(page);
   const workers = [];
   for (const select of document.querySelectorAll('select')) {
     let value = select.querySelector('option[selected]')?.value || select.querySelector('option')?.value || '';
@@ -59,12 +60,71 @@ test('the vision page loads the vision worker and sends the screen with the achi
   assert.equal(request.instructions, undefined);
 });
 
+test('the default page runs the memory student: tagged answers, its memory carried to the next prompt', () => {
+  const ui = boot(memoryHtml);
+  const [world, model] = ui.workers;
+  assert.equal(model.url, 'https://tviskaron.github.io/zero-wasm/built/vision-worker.js');
+  assert.equal(model.messages[0].model, 'vision-memory');
+  const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
+  const state = (action) => ({
+    type: 'world', done: false, action, reward: 0, frame,
+    text: { long_term_context: 'unused', short_term_context: 'unused' }, history: [], instructions: '', prompt: '',
+    actions: ['Noop', 'Move East'], stats: { seed: 0, steps: 0, inventory: {}, achievements: { collect_wood: 1 } },
+    sampling: { seed: 1, draws: new Float64Array(1024).fill(0.5) },
+  });
+  world.emit(state(null));
+  model.emit({ type: 'ready', threads: 1, manifest: { label: 'Vision memory PPO', parameters: 12593280 } });
+  const decide = (text) => {
+    ui.get('step').onclick();
+    const request = model.messages.filter((message) => message.type === 'generate').at(-1);
+    model.emit({ type: 'result', id: request.id, text, tokens: 20, seconds: 1 });
+    const step = world.messages.filter((message) => message.type === 'step').at(-1);
+    world.emit(state(step.action || 'Noop'));
+    return { request, step };
+  };
+  const first = decide('<reasoning>\nTable east.\n</reasoning>\n<action>Move East</action>\n<memory>Table: 1 east.\nGoal: pickaxe.</memory>');
+  assert.equal(first.request.accomplished,
+    'Accomplished achievements: collect_wood\nYour memory (written by you at the previous step):\n(empty: this is the first step)');
+  assert.equal(first.step.action, 'Move East');
+  const second = decide('<reasoning>\nRambling without an action');
+  assert.match(second.request.accomplished, /step\):\nTable: 1 east\.\nGoal: pickaxe\.$/);
+  assert.equal(second.step.action, '');  // invalid: the world plays Noop
+  const third = decide('<reasoning>\nx\n</reasoning>\n<action>Noop</action>\n<memory>new</memory>');
+  assert.match(third.request.accomplished, /Goal: pickaxe\.$/);  // an invalid answer keeps the old memory
+  ui.get('reset').onclick();
+  world.emit(state(null));
+  const fourth = decide('<reasoning>\nx\n</reasoning>\n<action>Noop</action>\n<memory>after reset</memory>');
+  assert.match(fourth.request.accomplished, /\(empty: this is the first step\)$/);  // a new game starts empty
+});
+
+test('while asleep with energy below the maximum the vision agents are not asked and the world sleeps', () => {
+  const ui = boot(memoryHtml);
+  const [world, model] = ui.workers;
+  const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
+  const state = (energy, text) => ({
+    type: 'world', done: false, action: null, reward: 0, frame,
+    text: { long_term_context: text, short_term_context: 'unused' }, history: [], instructions: '', prompt: '',
+    actions: ['Noop', 'Sleep'], stats: { seed: 0, steps: 0, inventory: { energy }, achievements: {} },
+    sampling: { seed: 1, draws: new Float64Array(1024).fill(0.5) },
+  });
+  world.emit(state(3, 'You are sleeping, and will not be able take actions until energy is full.'));
+  model.emit({ type: 'ready', threads: 1, manifest: { label: 'Vision memory PPO', parameters: 12593280 } });
+  ui.get('step').onclick();
+  assert.equal(model.messages.filter((message) => message.type === 'generate').length, 0);
+  assert.equal(world.messages.filter((message) => message.type === 'step').at(-1).action, 'Sleep');
+  world.emit(state(9, 'You are sleeping, and will not be able take actions until energy is full.'));
+  ui.get('step').onclick();  // energy full: this step wakes the player and its action counts again
+  assert.equal(model.messages.filter((message) => message.type === 'generate').length, 1);
+});
+
 test('vision assets match their manifest and the page uses relative paths', async () => {
-  const manifest = JSON.parse(await readFile(new URL('../assets/models/vision-ppo/manifest.json', import.meta.url), 'utf8'));
-  for (const [name, key] of [['vision.onnx', 'vision'], ['decoder.onnx', 'decoder']]) {
-    const bytes = await readFile(new URL(`../assets/models/vision-ppo/${name}`, import.meta.url));
-    assert.equal(bytes.length, manifest[`${key}_bytes`]);
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest[`${key}_sha256`]);
+  for (const model of ['vision-ppo', 'vision-memory']) {
+    const manifest = JSON.parse(await readFile(new URL(`../assets/models/${model}/manifest.json`, import.meta.url), 'utf8'));
+    for (const [name, key] of [['vision.onnx', 'vision'], ['decoder.onnx', 'decoder']]) {
+      const bytes = await readFile(new URL(`../assets/models/${model}/${name}`, import.meta.url));
+      assert.equal(bytes.length, manifest[`${key}_bytes`]);
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest[`${key}_sha256`]);
+    }
   }
   const { document } = parseHTML(html);
   assert.equal(document.querySelector('script[type="module"]').getAttribute('src'), './built/app.js');

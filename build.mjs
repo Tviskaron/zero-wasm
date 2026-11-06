@@ -83,11 +83,13 @@ if (!process.argv.includes('--assets-only')) {
   if (await sha256(path.join(modelRoot, 'model.onnx')) !== model.onnx_sha256) {
     throw new Error('PPO model checksum differs from its manifest');
   }
-  const visionRoot = path.join(root, 'assets/models/vision-ppo');
-  const vision = JSON.parse(await readFile(path.join(visionRoot, 'manifest.json'), 'utf8'));
-  if (await sha256(path.join(visionRoot, 'vision.onnx')) !== vision.vision_sha256
-      || await sha256(path.join(visionRoot, 'decoder.onnx')) !== vision.decoder_sha256) {
-    throw new Error('Vision model checksum differs from its manifest');
+  for (const name of ['vision-ppo', 'vision-memory']) {
+    const visionRoot = path.join(root, 'assets/models', name);
+    const vision = JSON.parse(await readFile(path.join(visionRoot, 'manifest.json'), 'utf8'));
+    if (await sha256(path.join(visionRoot, 'vision.onnx')) !== vision.vision_sha256
+        || await sha256(path.join(visionRoot, 'decoder.onnx')) !== vision.decoder_sha256) {
+      throw new Error(`Vision model ${name} checksum differs from its manifest`);
+    }
   }
   const world = JSON.parse(await readFile(path.join(root, 'assets/world-provenance.json'), 'utf8'));
   if (await sha256(path.join(root, 'world.py')) !== world.files['world.py']) {
@@ -105,7 +107,7 @@ if (!process.argv.includes('--assets-only')) {
     sourcemap: false,
     logLevel: 'info',
   });
-  for (const name of ['index.html', 'text.html', 'vision.html', 'styles.css', 'THIRD_PARTY_NOTICES.md']) {
+  for (const name of ['index.html', 'text.html', 'vision.html', 'vision-memory.html', 'styles.css', 'THIRD_PARTY_NOTICES.md']) {
     await copyFile(path.join(root, name), path.join(output, name));
   }
   await cp(path.join(root, 'assets'), path.join(output, 'assets'), { recursive: true });

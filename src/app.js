@@ -1,8 +1,15 @@
 import { ResponseView } from './response-view.js';
 
 const $ = (id) => document.getElementById(id);
-// index.html runs the 12.6M screen student, text.html the 5M text agent; the game and controls are shared.
-const VISION = document.body?.dataset?.agent === 'vision';
+// index.html runs the 12.6M screen-only student, vision-memory.html the 12.6M memory student, text.html the 5M text agent;
+// the game and controls are shared.
+const AGENT = document.body?.dataset?.agent;
+const MEMORY = AGENT === 'vision-memory';
+const VISION = AGENT === 'vision' || MEMORY;
+const MEMORY_HEADER = 'Your memory (written by you at the previous step):';
+const MEMORY_EMPTY = '(empty: this is the first step)';
+const MEMORY_CHARS = 300;
+let memory = '';  // the memory student's own memory, written at its previous decision and shown to it at the next
 const responseView = new ResponseView($('response'), document.querySelector('.response-wrap'));
 const worldWorker = new Worker(new URL('./world-worker.js', import.meta.url), { type: 'module' });
 let modelWorker = null;
@@ -85,7 +92,9 @@ function renderWorld(next) {
     : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $('achievement-count').textContent = `${achievements.length} of 22`;
   $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';
-  $('observation').textContent = VISION
+  $('observation').textContent = MEMORY
+    ? `The model sees only the game screen and this text:\n${studentContext(next.stats.achievements)}`
+    : VISION
     ? `The model sees only the game screen and this line:\n${accomplishedLine(next.stats.achievements)}`
     : `${next.text.long_term_context}\n${next.text.short_term_context}`;
   if (!$('manual-action').options.length) {
@@ -110,6 +119,21 @@ function accomplishedLine(achievements) {
   return 'Accomplished achievements: ' + (names.length ? names.join(', ') : 'none');
 }
 
+// The text after the screen: the achievements line, and for the memory student its memory (as in its training data).
+function studentContext(achievements) {
+  const line = accomplishedLine(achievements);
+  return MEMORY ? `${line}\n${MEMORY_HEADER}\n${memory || MEMORY_EMPTY}` : line;
+}
+
+// The memory student's tagged answer, read as in training: the first valid <action>, then a <memory> block after it.
+function taggedAnswer(text, actions) {
+  const names = actions.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const action = text.match(new RegExp(`<action>\\s*(${names})\\s*</action>`));
+  if (!action) return null;
+  const block = text.slice(action.index + action[0].length).match(/<memory>([\s\S]*?)<\/memory>/);
+  return block ? { action: action[1], memory: block[1].trim().slice(0, MEMORY_CHARS) } : null;
+}
+
 function manualAction(action) {
   if (!worldReady || busy || autoplay || world.done) return;
   busy = true;
@@ -120,8 +144,25 @@ function manualAction(action) {
   worldWorker.postMessage({ type: 'step', action });
 }
 
+// Crafter replaces any action with Sleep while the player sleeps with energy below the maximum (the world says so in
+// its text), so the vision agents are not asked: the teacher data skipped these steps too, and the memory student's
+// memory stays as it was. The step that wakes the player (energy full) is a real decision again.
+function asleep(state) {
+  return /You are sleeping/.test(state?.text?.long_term_context || '') && (state?.stats?.inventory?.energy ?? 9) < 9;
+}
+
 function generate() {
   if (!worldReady || !modelReady || busy || world.done) return;
+  if (VISION && asleep(world)) {
+    busy = true;
+    applyingAction = true;
+    responseView.reset('Asleep. Crafter ignores every action until energy is full, so the model is not asked.');
+    $('token-stats').textContent = `Asleep, energy ${world.stats.inventory.energy}/9, no decision`;
+    $('last-action').textContent = 'Sleep';
+    controls();
+    worldWorker.postMessage({ type: 'step', action: 'Sleep' });
+    return;
+  }
   busy = true;
   actionPending = true;
   applyingAction = false;
@@ -133,7 +174,8 @@ function generate() {
   $('thinking').querySelector('span').textContent = 'Processing the observation…';
   $('token-stats').textContent = 'Tokenizing observation…';
   modelWorker.postMessage(VISION ? {
-    type: 'generate', id: requestId, frame: world.frame, accomplished: accomplishedLine(world.stats.achievements),
+    type: 'generate', id: requestId, frame: world.frame, accomplished: studentContext(world.stats.achievements),
+    actions: world.actions,
     maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
     samplingSeed: world.sampling.seed, samplingDraws: world.sampling.draws,
   } : {
@@ -163,7 +205,7 @@ worldWorker.onmessage = ({ data }) => {
     if (autoplay) autoTimer = setTimeout(() => {
       autoTimer = null;
       if (autoplay) generate();
-    }, Number($('step-delay').value));
+    }, VISION && asleep(data) ? 0 : Number($('step-delay').value));  // sleep steps need no reading pause
   } else if (data.type === 'error') {
     busy = false;
     autoplay = false;
@@ -237,7 +279,7 @@ function loadDefaultModel() {
     modelWorker = worker;
     worker.onmessage = ({ data }) => handleModelMessage(worker, data);
     worker.onerror = (event) => modelFailure(worker, event.message);
-    worker.postMessage({ type: 'load', model: VISION ? 'vision-ppo' : 'ppo' });
+    worker.postMessage({ type: 'load', model: MEMORY ? 'vision-memory' : VISION ? 'vision-ppo' : 'ppo' });
   } catch (error) {
     modelFailure(modelWorker, error.message);
   }
@@ -283,6 +325,9 @@ function handleModelMessage(worker, data) {
     responseView.append(data.text);
     $('token-stats').textContent = `${data.tokens} tokens, ${data.tokensPerSecond.toFixed(1)} tok/s`;
     $('thinking').hidden = true;
+  } else if (data.type === 'actions') {
+    if (!actionPending || pendingReset !== null) return;
+    responseView.setActions(data.actions, data.mass);
   } else if (data.type === 'result') {
     if (!actionPending) return;
     $('thinking').hidden = true;
@@ -291,7 +336,8 @@ function handleModelMessage(worker, data) {
       startReset(pendingReset);
       return;
     }
-    responseView.finish(data.text || (data.cancelled ? 'Generation stopped.' : 'Empty model response.'));
+    if (data.text) responseView.finish(data.text);
+    else responseView.reset(data.cancelled ? 'Generation stopped.' : 'Empty model response.');
     $('token-stats').textContent = `${data.tokens} tokens in ${(data.seconds).toFixed(1)}s${data.capHit ? ', token limit reached' : ''}`;
     if (data.cancelled || stopRequested) {
       busy = false;
@@ -299,7 +345,14 @@ function handleModelMessage(worker, data) {
       controls();
       return;
     }
-    const parsed = data.text.replace(/[^a-zA-Z\s:]/g, '').split('ACTION:').at(-1).trim();
+    let parsed;
+    if (MEMORY) {  // an invalid answer plays Noop and keeps the old memory, as in training
+      const answer = taggedAnswer(data.text, world.actions);
+      parsed = answer ? answer.action : '';
+      if (answer) memory = answer.memory;
+    } else {
+      parsed = data.text.replace(/[^a-zA-Z\s:]/g, '').split('ACTION:').at(-1).trim();
+    }
     const action = world.actions.includes(parsed) ? parsed : 'Noop';
     $('last-action').textContent = action;
     if (action !== parsed) $('action-note').textContent = 'No valid action in response, fallback to Noop';
@@ -345,6 +398,7 @@ $('stop').onclick = () => {
 };
 function startReset(seed) {
   pendingReset = null;
+  memory = '';  // a new game starts with an empty memory
   resetting = true;
   busy = true;
   autoplay = false;
@@ -390,8 +444,8 @@ function requestReset(seed) {
 
 $('reset').onclick = () => requestReset(Number($('seed').value));
 $('agent').onchange = () => {
-  // Each agent has its own page; both load the same game.
-  location.href = $('agent').value === 'vision' ? './' : './text.html';
+  // Each agent has its own page; all load the same game.
+  location.href = { 'vision-memory': './vision-memory.html', vision: './', text: './text.html' }[$('agent').value];
 };
 $('show-stats').onchange = () => {
   $('token-stats').hidden = !$('show-stats').checked;

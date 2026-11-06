@@ -147,11 +147,12 @@ summary::-webkit-details-marker { display: none; }
 #last-action { font-weight: 600; }
 #action-note { margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); }
 
-.response-line { display: block; min-height: 1.65em; }
-.response-line strong { font-weight: 600; }
-.response-list-item { padding-left: 1.25em; text-indent: -1.25em; }
-.response-list-marker { color: var(--ink-2); }
-.response-action-line { margin-top: .5em; padding-top: .5em; border-top: 1px solid var(--line); font-weight: 600; }
+/* Answer blocks: reasoning, action (with the model's probability of it), memory, and any other text. */
+.response-block { padding: 8px 0; border-top: 1px solid var(--line); }
+.response-block:first-child { padding-top: 0; border-top: 0; }
+.response-block-label { font-weight: 600; }
+.response-block-body strong { font-weight: 600; }
+.response-block-other { color: var(--ink-2); }
 
 .notice { grid-column: 1 / -1; margin-top: 12px; padding: 12px 14px; border: 1px solid #e8d3b8; border-radius: var(--radius); background: #fbf5ec; color: #6e4a20; line-height: 1.6; white-space: pre-wrap; }
 

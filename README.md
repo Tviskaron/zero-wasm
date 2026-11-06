@@ -6,8 +6,9 @@ Crafter and small language agents running in the browser through WebAssembly.
 The game is original Crafter 1.8.3. The demo opens with the 12.6M-parameter
 [vision agent](#vision-agent), which plays from the game screen. The
 5-million-parameter text agent (the published ZeroHero PPO iteration-300
-checkpoint, on BALROG observations) is on `text.html`, or choose it under
-**Agent** in the settings. There is no Python server, inference API, or training
+checkpoint, on BALROG observations) is on `text.html`, and the 12.6M
+[vision agent with memory](#vision-agent-with-memory) on `vision-memory.html`; or
+choose either under **Agent** in the settings. There is no Python server, inference API, or training
 code in this standalone repository.
 
 ## Run locally
@@ -74,6 +75,25 @@ ONNX graphs (vision encoder 29 MiB, decoder with KV cache 23.3 MiB) in
 checksums, export checks and provenance; the page verifies both checksums before
 loading. Sampling masks the four multimodal marker tokens, as in PPO training.
 The default token limit is 512, as in the held-out evaluation.
+
+## Vision agent with memory
+
+`vision-memory.html` runs a 12.6M-parameter Qwen3-VL student of the same size that
+keeps its own memory. Each step it sees the 256×256 game screen, the
+`Accomplished achievements: …` line and the memory it wrote at its previous step,
+and answers `<reasoning>…</reasoning>`, `<action>NAME</action>` and
+`<memory>…</memory>`; the new memory replaces the old one. Its tokenizer is made of
+4,093 of the teacher's (Qwen3.8-Flash-Next) own tokens. It was trained from
+scratch on 2.72M teacher decisions whose memories and reasoning were checked
+against the game and corrected (8.78 ± 0.13 achievements on the held-out worlds),
+then with PPO for 3.59M environment steps with a KL anchor on its reasoning and
+memory text and regular training on the teacher's text, so the text stays readable
+while the score rises. On the same 128 held-out worlds with 3 sampling seeds it
+scores 13.41 ± 0.15. While the player sleeps below full energy the model is not
+asked, as in training. The page shows each answer as reasoning, action and memory
+blocks, with the model's probability of the action it wrote (all 17 action names
+are scored where the answer starts its action). The model is in
+[`assets/models/vision-memory/`](assets/models/vision-memory/).
 
 ## Deployment and provenance
 

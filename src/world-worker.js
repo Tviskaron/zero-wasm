@@ -4,7 +4,7 @@ import { referenceSamplingDraws } from './sampling.js';
 let runtime;
 let queue = Promise.resolve();
 let episodeDone = false;
-const EPISODE_STEP_LIMIT = 256;
+const EPISODE_STEP_LIMIT = 512;
 const root = new URL('../', import.meta.url);
 
 const status = (message) => self.postMessage({ type: 'status', message });

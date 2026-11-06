@@ -309,10 +309,10 @@ test('natural endings and time truncation show distinct overlays and stop the ag
     ui.ready(worker);
     ui.click('run');
     ui.result(worker);
-    ui.world.emit({ ...ui.snapshot(0, truncated ? 256 : 8), done: true, truncated, episodeLimit: 256 });
+    ui.world.emit({ ...ui.snapshot(0, truncated ? 512 : 8), done: true, truncated, episodeLimit: 512 });
     assert.equal(ui.get('episode-end').hidden, false);
     assert.equal(ui.get('episode-end-title').textContent, truncated ? 'Time limit reached' : 'Game over');
-    if (truncated) assert.match(ui.get('episode-end-detail').textContent, /ended by time: 256 steps/);
+    if (truncated) assert.match(ui.get('episode-end-detail').textContent, /ended by time: 512 steps/);
     assert.equal(ui.get('run').disabled, true);
     assert.equal(ui.get('step').disabled, true);
     assert.equal(ui.timers.size, 0);

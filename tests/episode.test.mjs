@@ -36,22 +36,22 @@ function boot(deathAt = Infinity) {
   };
 }
 
-test('the world worker truncates at 256 decisions, rejects later actions, and resets', async () => {
+test('the world worker truncates at 512 decisions, rejects later actions, and resets', async () => {
   const worker = boot();
   const initial = await worker.send('init');
   assert.equal(initial.stats.steps, 0);
   assert.equal(initial.done, false);
-  assert.equal(initial.episodeLimit, 256);
-  for (let step = 1; step <= 256; step++) {
+  assert.equal(initial.episodeLimit, 512);
+  for (let step = 1; step <= 512; step++) {
     const result = await worker.send('step');
     assert.equal(result.stats.steps, step);
-    assert.equal(result.done, step === 256);
-    assert.equal(result.truncated, step === 256);
+    assert.equal(result.done, step === 512);
+    assert.equal(result.truncated, step === 512);
     assert.equal(result.terminated, false);
   }
   const rejected = await worker.send('step');
   assert.equal(rejected.type, 'error');
-  assert.equal(worker.stepCalls(), 256, 'No world step is applied after truncation');
+  assert.equal(worker.stepCalls(), 512, 'No world step is applied after truncation');
   const reset = await worker.send('reset');
   assert.equal(reset.done, false);
   assert.equal(reset.truncated, false);
@@ -60,7 +60,7 @@ test('the world worker truncates at 256 decisions, rejects later actions, and re
 });
 
 test('natural termination takes precedence, including on the last allowed step', async () => {
-  for (const deathAt of [3, 256]) {
+  for (const deathAt of [3, 512]) {
     const worker = boot(deathAt);
     await worker.send('init');
     let result;

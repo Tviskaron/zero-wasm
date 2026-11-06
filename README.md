@@ -35,7 +35,7 @@ manual movement and interaction.
 Resetting the world keeps an in-progress model download. **Stop** can cancel
 the download; **Run** retries a cancelled or failed load.
 
-Demo episodes stop after 256 decisions, counting both agent and manual actions.
+Demo episodes stop after 512 decisions, counting both agent and manual actions.
 The game screen reports **Time limit reached** for this truncation and
 **Game over** for an earlier natural ending. **New world** starts another episode
 with a fresh seed and reuses the loaded model. This demo limit is separate from

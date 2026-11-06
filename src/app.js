@@ -85,10 +85,10 @@ function renderWorld(next) {
     return span;
   }));
   const achievements = Object.entries(next.stats.achievements || {}).filter(([, count]) => count > 0);
-  $('readout').textContent = `Step ${next.stats.steps}/${next.episodeLimit ?? 256}, ${achievements.length}/22 achievements`;
+  $('readout').textContent = `Step ${next.stats.steps}/${next.episodeLimit ?? 512}, ${achievements.length}/22 achievements`;
   $('episode-end-title').textContent = next.truncated ? 'Time limit reached' : 'Game over';
   $('episode-end-detail').textContent = next.truncated
-    ? `Episode ended by time: ${next.episodeLimit ?? 256} steps. ${achievements.length}/22 achievements.`
+    ? `Episode ended by time: ${next.episodeLimit ?? 512} steps. ${achievements.length}/22 achievements.`
     : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $('achievement-count').textContent = `${achievements.length} of 22`;
   $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';

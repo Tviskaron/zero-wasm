@@ -4655,8 +4655,10 @@ async function downloadAll(files) {
     return bytes.buffer;
   }));
 }
-async function load() {
+async function load(model = "vision-ppo") {
   if (loading || activeId !== null) throw new Error("The model is busy.");
+  if (!/^[a-z-]+$/.test(model)) throw new Error("Unknown vision model");
+  modelRoot = new URL(`assets/models/${model}/`, siteRoot);
   loading = true;
   try {
     status("Downloading the vision model\u2026");
@@ -4763,7 +4765,7 @@ async function generate(message) {
     deep1.set(seen.deepstack_1.data, start * H);
     const pos = positions(ids);
     let lastPosition = Math.max(...pos.flat());
-    async function forward(tokens, positionRows, maskRows, embedRows, d0, d1) {
+    async function run(tokens, positionRows, maskRows, embedRows, d0, d1, past) {
       const n = tokens.length;
       const feeds = {
         input_ids: keep(new W("int64", BigInt64Array.from(tokens, BigInt), [1, n])),
@@ -4774,14 +4776,57 @@ async function generate(message) {
         deepstack_1: keep(new W("float32", d1, [1, n, H]))
       };
       for (let i = 0; i < L; i += 1) {
-        feeds[`past_key_${i}`] = cache[2 * i];
-        feeds[`past_value_${i}`] = cache[2 * i + 1];
+        feeds[`past_key_${i}`] = past[2 * i];
+        feeds[`past_value_${i}`] = past[2 * i + 1];
       }
       const result = await decoder.run(feeds);
+      const present = [];
+      for (let i = 0; i < L; i += 1) present.push(result[`present_key_${i}`], result[`present_value_${i}`]);
+      return { logits: result.logits, cache: present };
+    }
+    async function forward(tokens, positionRows, maskRows, embedRows, d0, d1) {
+      const result = await run(tokens, positionRows, maskRows, embedRows, d0, d1, cache);
       cache.forEach((t) => t.dispose?.());
-      cache = [];
-      for (let i = 0; i < L; i += 1) cache.push(result[`present_key_${i}`], result[`present_value_${i}`]);
+      cache = result.cache;
       return result.logits;
+    }
+    async function actionDistribution(names2, rest, closing, first, past, position) {
+      const sequences = names2.map((name) => {
+        const tokens = tokenizer.encode(rest + name + closing.text, { add_special_tokens: false }).ids;
+        return closing.eos ? [...tokens, manifest.eos_token_id] : tokens;
+      });
+      const root = { children: /* @__PURE__ */ new Map(), ends: [] };
+      sequences.forEach((tokens, index) => {
+        let node = root;
+        for (const token of tokens) {
+          if (!node.children.has(token)) node.children.set(token, { children: /* @__PURE__ */ new Map(), ends: [] });
+          node = node.children.get(token);
+        }
+        node.ends.push(index);
+      });
+      const scores = new Array(names2.length).fill(-Infinity);
+      const zeros2 = new Float32Array(H);
+      async function visit(node, logp, logits2, before, at2) {
+        let top = -Infinity;
+        for (let i = 0; i < manifest.image_token_id; i += 1) if (logits2[i] > top) top = logits2[i];
+        let total = 0;
+        for (let i = 0; i < manifest.image_token_id; i += 1) total += Math.exp(logits2[i] - top);
+        const normalizer = top + Math.log(total);
+        for (const [token, child] of node.children) {
+          const value = logp + logits2[token] - normalizer;
+          for (const index of child.ends) scores[index] = value;
+          if (child.children.size) {
+            const next = await run([token], [[at2 + 1], [at2 + 1], [at2 + 1]], new Float32Array(1), zeros2, zeros2, zeros2, before);
+            const data = Float32Array.from(next.logits.data);
+            next.logits.dispose?.();
+            await visit(child, value, data, next.cache, at2 + 1);
+            next.cache.forEach((t) => t.dispose?.());
+          }
+        }
+      }
+      await visit(root, 0, first, past, position);
+      const mass = scores.reduce((sum, value) => sum + Math.exp(value), 0);
+      return { actions: names2.map((name, index) => ({ name, p: mass > 0 ? Math.exp(scores[index]) / mass : 0 })).sort((a, b) => b.p - a.p), mass };
     }
     self.postMessage({ type: "prefill", id: activeId, completed: 0, total: S });
     let logits = await forward(ids, pos, mask, embeds, deep0, deep1);
@@ -4790,15 +4835,32 @@ async function generate(message) {
     const decodeStart = performance.now();
     let finished = false;
     let capHit = false;
+    const names = Array.isArray(message.actions) ? message.actions : [];
+    let scored = names.length === 0;
     for (let i = 0; i < cap && !cancelled; i += 1) {
       logits.data.fill(-Infinity, manifest.image_token_id);
       const token = sample(logits.data, temperature, message.samplingDraws[i]);
+      const here = scored ? null : Float32Array.from(logits.data);
       logits.dispose();
       if (token === manifest.eos_token_id) {
         finished = true;
         break;
       }
       generated.push(token);
+      if (!scored && /[>:]/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
+        const text2 = tokenizer.decode(generated, { skip_special_tokens: true });
+        const tagged = text2.indexOf("<action>");
+        const plain = text2.lastIndexOf("ACTION:");
+        const end = tagged >= 0 ? tagged + "<action>".length : plain >= 0 ? plain + "ACTION:".length : -1;
+        if (end >= 0) {
+          scored = true;
+          const before = tokenizer.decode(generated.slice(0, -1), { skip_special_tokens: true });
+          const rest = text2.slice(before.length, end) + (tagged >= 0 ? "" : " ");
+          const closing = tagged >= 0 ? { text: "</action>", eos: false } : { text: "", eos: true };
+          const result = await actionDistribution(names, rest, closing, here, cache, lastPosition);
+          self.postMessage({ type: "actions", id: activeId, ...result });
+        }
+      }
       if (i % 4 === 0 || i === cap - 1) {
         self.postMessage({
           type: "tokens",
@@ -4838,7 +4900,7 @@ self.onmessage = ({ data }) => {
     if (data.id === activeId) cancelled = true;
     return;
   }
-  const task = data.type === "load" ? load() : data.type === "generate" ? generate(data) : Promise.reject(new Error("Unknown model command"));
+  const task = data.type === "load" ? load(data.model) : data.type === "generate" ? generate(data) : Promise.reject(new Error("Unknown model command"));
   task.catch((error) => self.postMessage({ type: "error", id: data.id ?? null, message: error.stack || String(error) }));
 };
 /*! Bundled license information:

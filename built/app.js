@@ -1,4 +1,42 @@
 // src/response-view.js
+var LABELS = { reasoning: "Reasoning", action: "Action", memory: "Memory", other: "Other text" };
+var TAGGED = /<(reasoning|action|memory)>/g;
+function parseBlocks(text) {
+  const blocks = [];
+  const add = (kind, body, open = false) => {
+    if (kind === "other" && !body.trim()) return;
+    blocks.push({ kind, text: body, open });
+  };
+  if (/<(reasoning|action|memory)>/.test(text)) {
+    let at = 0;
+    while (at < text.length) {
+      TAGGED.lastIndex = at;
+      const tag = TAGGED.exec(text);
+      if (!tag) {
+        add("other", text.slice(at).replace(/<\/?[a-z]*$/, ""));
+        break;
+      }
+      add("other", text.slice(at, tag.index));
+      const start = tag.index + tag[0].length;
+      const close = text.indexOf(`</${tag[1]}>`, start);
+      if (close < 0) {
+        add(tag[1], text.slice(start).replace(/<\/?[a-z]*$/, ""), true);
+        break;
+      }
+      add(tag[1], text.slice(start, close));
+      at = close + tag[1].length + 3;
+    }
+  } else {
+    const action = text.lastIndexOf("ACTION:");
+    if (action < 0) {
+      add("reasoning", text, true);
+    } else {
+      add("reasoning", text.slice(0, action));
+      add("action", text.slice(action + "ACTION:".length));
+    }
+  }
+  return blocks;
+}
 var ResponseView = class {
   constructor(element, container) {
     this.element = element;
@@ -26,6 +64,7 @@ var ResponseView = class {
   }
   begin() {
     this.text = "";
+    this.actions = null;
     this.follow = true;
     this.element.replaceChildren();
     this.element.classList.add("active", "response-streaming");
@@ -35,35 +74,39 @@ var ResponseView = class {
   append(fullText) {
     const next = String(fullText ?? "");
     if (next === this.text) return;
-    this.update(() => {
-      let common = 0;
-      const limit = Math.min(this.text.length, next.length);
-      while (common < limit && this.text[common] === next[common]) common += 1;
-      if (common && /[\uD800-\uDBFF]/.test(next[common - 1])) common -= 1;
-      if (common < this.text.length) this.truncate(common);
-      const addition = next.slice(common);
-      if (addition) {
-        const span = this.document.createElement("span");
-        span.className = "response-stream-segment";
-        span.textContent = addition;
-        this.element.append(span);
-      }
-      this.text = next;
-    });
+    this.text = next;
+    this.update(() => this.render());
   }
-  truncate(length) {
-    let remaining = length;
-    for (const child of [...this.element.childNodes]) {
-      const size = child.textContent.length;
-      if (remaining >= size) {
-        remaining -= size;
-      } else if (remaining > 0) {
-        child.textContent = child.textContent.slice(0, remaining);
-        remaining = 0;
-      } else {
-        child.remove();
-      }
+  /** The probability of each action name where the answer started its action ({name, p}, best first). */
+  setActions(actions, mass) {
+    this.actions = actions;
+    this.mass = mass;
+    this.update(() => this.render());
+  }
+  render() {
+    const fragment = this.document.createDocumentFragment();
+    for (const block of parseBlocks(this.text)) {
+      const section = this.document.createElement("div");
+      section.className = `response-block response-block-${block.kind}`;
+      const label = this.document.createElement("div");
+      label.className = "response-block-label";
+      label.textContent = LABELS[block.kind];
+      const body = this.document.createElement("div");
+      body.className = "response-block-body";
+      this.appendInline(body, block.text.trim());
+      if (block.kind === "action") this.appendProbability(body, block.text.trim());
+      section.append(label, body);
+      fragment.append(section);
     }
+    this.element.replaceChildren(fragment);
+  }
+  /** The model's probability of the action written in the answer, after its name (nothing for a name that is not an
+   * action: the game plays Noop then). */
+  appendProbability(body, written) {
+    const action = this.actions?.find((a) => a.name === written);
+    if (!action) return;
+    const p = action.p < 1e-3 ? "<0.1%" : `${(100 * action.p).toFixed(action.p < 0.1 ? 1 : 0)}%`;
+    body.append(this.document.createTextNode(` (${p})`));
   }
   appendInline(parent, text) {
     let position = 0;
@@ -77,32 +120,13 @@ var ResponseView = class {
     parent.append(this.document.createTextNode(text.slice(position)));
   }
   finish(fullText) {
-    this.update(() => {
-      this.text = String(fullText ?? "");
-      const fragment = this.document.createDocumentFragment();
-      for (const text of this.text.split("\n")) {
-        const line = this.document.createElement("span");
-        line.className = "response-line";
-        const bullet = text.match(/^(\s*)([-*]|\d+[.)])\s+(.*)$/);
-        if (bullet) {
-          line.classList.add("response-list-item");
-          const marker = this.document.createElement("span");
-          marker.className = "response-list-marker";
-          marker.textContent = `${bullet[1]}${bullet[2]} `;
-          line.append(marker);
-          this.appendInline(line, bullet[3]);
-        } else {
-          this.appendInline(line, text);
-        }
-        if (/^\s*(?:\*\*)?ACTION\s*:/i.test(text)) line.classList.add("response-action-line");
-        fragment.append(line);
-      }
-      this.element.replaceChildren(fragment);
-      this.stopStreaming();
-    });
+    this.text = String(fullText ?? "");
+    this.update(() => this.render());
+    this.stopStreaming();
   }
   reset(text) {
     this.text = String(text ?? "");
+    this.actions = null;
     this.follow = true;
     this.element.textContent = this.text;
     this.element.classList.remove("active");
@@ -117,7 +141,13 @@ var ResponseView = class {
 
 // src/app.js
 var $ = (id) => document.getElementById(id);
-var VISION = document.body?.dataset?.agent === "vision";
+var AGENT = document.body?.dataset?.agent;
+var MEMORY = AGENT === "vision-memory";
+var VISION = AGENT === "vision" || MEMORY;
+var MEMORY_HEADER = "Your memory (written by you at the previous step):";
+var MEMORY_EMPTY = "(empty: this is the first step)";
+var MEMORY_CHARS = 300;
+var memory = "";
 var responseView = new ResponseView($("response"), document.querySelector(".response-wrap"));
 var worldWorker = new Worker(new URL("./world-worker.js", import.meta.url), { type: "module" });
 var modelWorker = null;
@@ -195,7 +225,8 @@ function renderWorld(next) {
   $("episode-end-detail").textContent = next.truncated ? `Episode ended by time: ${next.episodeLimit ?? 256} steps. ${achievements.length}/22 achievements.` : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $("achievement-count").textContent = `${achievements.length} of 22`;
   $("achievement-list").textContent = achievements.length ? achievements.map(([name]) => name.replaceAll("_", " ")).join(", ") : "None yet";
-  $("observation").textContent = VISION ? `The model sees only the game screen and this line:
+  $("observation").textContent = MEMORY ? `The model sees only the game screen and this text:
+${studentContext(next.stats.achievements)}` : VISION ? `The model sees only the game screen and this line:
 ${accomplishedLine(next.stats.achievements)}` : `${next.text.long_term_context}
 ${next.text.short_term_context}`;
   if (!$("manual-action").options.length) {
@@ -217,6 +248,19 @@ function accomplishedLine(achievements) {
   const names = Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
   return "Accomplished achievements: " + (names.length ? names.join(", ") : "none");
 }
+function studentContext(achievements) {
+  const line = accomplishedLine(achievements);
+  return MEMORY ? `${line}
+${MEMORY_HEADER}
+${memory || MEMORY_EMPTY}` : line;
+}
+function taggedAnswer(text, actions) {
+  const names = actions.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const action = text.match(new RegExp(`<action>\\s*(${names})\\s*</action>`));
+  if (!action) return null;
+  const block = text.slice(action.index + action[0].length).match(/<memory>([\s\S]*?)<\/memory>/);
+  return block ? { action: action[1], memory: block[1].trim().slice(0, MEMORY_CHARS) } : null;
+}
 function manualAction(action) {
   if (!worldReady || busy || autoplay || world.done) return;
   busy = true;
@@ -226,8 +270,21 @@ function manualAction(action) {
   controls();
   worldWorker.postMessage({ type: "step", action });
 }
+function asleep(state) {
+  return /You are sleeping/.test(state?.text?.long_term_context || "") && (state?.stats?.inventory?.energy ?? 9) < 9;
+}
 function generate() {
   if (!worldReady || !modelReady || busy || world.done) return;
+  if (VISION && asleep(world)) {
+    busy = true;
+    applyingAction = true;
+    responseView.reset("Asleep. Crafter ignores every action until energy is full, so the model is not asked.");
+    $("token-stats").textContent = `Asleep, energy ${world.stats.inventory.energy}/9, no decision`;
+    $("last-action").textContent = "Sleep";
+    controls();
+    worldWorker.postMessage({ type: "step", action: "Sleep" });
+    return;
+  }
   busy = true;
   actionPending = true;
   applyingAction = false;
@@ -242,7 +299,8 @@ function generate() {
     type: "generate",
     id: requestId,
     frame: world.frame,
-    accomplished: accomplishedLine(world.stats.achievements),
+    accomplished: studentContext(world.stats.achievements),
+    actions: world.actions,
     maxNewTokens: Number($("token-limit").value),
     temperature: Number($("temperature").value),
     samplingSeed: world.sampling.seed,
@@ -278,7 +336,7 @@ worldWorker.onmessage = ({ data }) => {
     if (autoplay) autoTimer = setTimeout(() => {
       autoTimer = null;
       if (autoplay) generate();
-    }, Number($("step-delay").value));
+    }, VISION && asleep(data) ? 0 : Number($("step-delay").value));
   } else if (data.type === "error") {
     busy = false;
     autoplay = false;
@@ -347,7 +405,7 @@ function loadDefaultModel() {
     modelWorker = worker;
     worker.onmessage = ({ data }) => handleModelMessage(worker, data);
     worker.onerror = (event) => modelFailure(worker, event.message);
-    worker.postMessage({ type: "load", model: VISION ? "vision-ppo" : "ppo" });
+    worker.postMessage({ type: "load", model: MEMORY ? "vision-memory" : VISION ? "vision-ppo" : "ppo" });
   } catch (error) {
     modelFailure(modelWorker, error.message);
   }
@@ -391,6 +449,9 @@ function handleModelMessage(worker, data) {
     responseView.append(data.text);
     $("token-stats").textContent = `${data.tokens} tokens, ${data.tokensPerSecond.toFixed(1)} tok/s`;
     $("thinking").hidden = true;
+  } else if (data.type === "actions") {
+    if (!actionPending || pendingReset !== null) return;
+    responseView.setActions(data.actions, data.mass);
   } else if (data.type === "result") {
     if (!actionPending) return;
     $("thinking").hidden = true;
@@ -399,7 +460,8 @@ function handleModelMessage(worker, data) {
       startReset(pendingReset);
       return;
     }
-    responseView.finish(data.text || (data.cancelled ? "Generation stopped." : "Empty model response."));
+    if (data.text) responseView.finish(data.text);
+    else responseView.reset(data.cancelled ? "Generation stopped." : "Empty model response.");
     $("token-stats").textContent = `${data.tokens} tokens in ${data.seconds.toFixed(1)}s${data.capHit ? ", token limit reached" : ""}`;
     if (data.cancelled || stopRequested) {
       busy = false;
@@ -407,7 +469,14 @@ function handleModelMessage(worker, data) {
       controls();
       return;
     }
-    const parsed = data.text.replace(/[^a-zA-Z\s:]/g, "").split("ACTION:").at(-1).trim();
+    let parsed;
+    if (MEMORY) {
+      const answer = taggedAnswer(data.text, world.actions);
+      parsed = answer ? answer.action : "";
+      if (answer) memory = answer.memory;
+    } else {
+      parsed = data.text.replace(/[^a-zA-Z\s:]/g, "").split("ACTION:").at(-1).trim();
+    }
     const action = world.actions.includes(parsed) ? parsed : "Noop";
     $("last-action").textContent = action;
     if (action !== parsed) $("action-note").textContent = "No valid action in response, fallback to Noop";
@@ -451,6 +520,7 @@ $("stop").onclick = () => {
 };
 function startReset(seed) {
   pendingReset = null;
+  memory = "";
   resetting = true;
   busy = true;
   autoplay = false;
@@ -494,7 +564,7 @@ function requestReset(seed) {
 }
 $("reset").onclick = () => requestReset(Number($("seed").value));
 $("agent").onchange = () => {
-  location.href = $("agent").value === "vision" ? "./" : "./text.html";
+  location.href = { "vision-memory": "./vision-memory.html", vision: "./", text: "./text.html" }[$("agent").value];
 };
 $("show-stats").onchange = () => {
   $("token-stats").hidden = !$("show-stats").checked;

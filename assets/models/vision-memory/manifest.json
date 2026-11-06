@@ -56,15 +56,15 @@
   },
   "validation": {
     "errors": {
-      "vision": 3.814697265625e-05,
-      "prefill_logits": 8.344650268554688e-06
+      "vision": 5.340576171875e-05,
+      "prefill_logits": 6.67572021484375e-06
     },
     "greedy_tokens_checked": 24,
     "reference": "Transformers 4.57.1 eager FP32"
   },
-  "checkpoint": "h100:runs/zerohero/20261105-teacher-vocab-ppo/held_out/models/checkpoint_000056169_3588096",
-  "vision_sha256": "ccd830f51936461ac8855b48519fd1a76353050e0f8cd6a8238339ba692a76c1",
-  "decoder_sha256": "a5eba51e96fbffdc77275477c5722781f14260bc0a826791399e27a54b25b7b8",
+  "checkpoint": "h100:runs/zerohero/20261105-teacher-vocab-ppo/held_out/models/checkpoint_000069507_4440064",
+  "vision_sha256": "2a413c2e4b97f0c98750def8cbf27b6d3db9d316d3e497d47ece588247633b9a",
+  "decoder_sha256": "69d095ebadbe1a980128f7dd86c5935d173ffd1b7ccab9439ff851de7598e092",
   "memory": {
     "format": "relative",
     "answer": "tagged",
@@ -72,14 +72,14 @@
     "header": "Your memory (written by you at the previous step):",
     "empty": "(empty: this is the first step)"
   },
-  "label": "Vision memory PPO, 3.59M env steps",
+  "label": "Vision memory PPO, 4.44M env steps",
   "parameters": 12593280,
   "vision_bytes": 30370384,
   "decoder_bytes": 24478266,
   "provenance": {
     "student": "relative-memory vision student on the teacher's tokens (4,093 Qwen3.8-Flash-Next tokens, tags in the teacher's pieces), trained from scratch on 2.72M cleaned memory+medium teacher decisions without the status line: 8.78 +- 0.13 on the 128 held-out worlds (3 sampling seeds)",
-    "training": "PPO on h100, run 20261105-teacher-vocab-ppo (automatic sleep, standard reward, top-20 text KL to an anchor on reasoning and memory, teacher-text phase every 2 iterations; from 2.90M env steps the SFT student as a fixed anchor, the end of the answer in the KL, text after </memory> invalid), checkpoint_000056169_3588096 (3,588,096 env steps)",
-    "held_out": "13.41 +- 0.15 on the same 128 worlds (3 sampling seeds, 384 games), the run's best",
-    "sample_factory_checkpoint_sha256": "e2f030a7ad3efdc8119294425db5c3b65a9a037f60dac9bce0e9bccf6569382a"
+    "training": "PPO on h100, run 20261105-teacher-vocab-ppo (automatic sleep, standard reward, top-20 text KL to an anchor on reasoning and memory, teacher-text phase every 2 iterations; from 2.90M env steps the SFT student as a fixed anchor, the end of the answer in the KL, text after </memory> invalid), checkpoint_000069507_4440064 (4,440,064 env steps)",
+    "held_out": "13.95 +- 0.15 on the same 128 worlds (3 sampling seeds, 384 games), the run's best",
+    "sample_factory_checkpoint_sha256": "f29829eb0450999b7c5db693361807d2e8e57a029cc4cf20011cacfff7c32dda"
   }
 }

@@ -26,7 +26,7 @@ async function referenceSamplingDraws(pyodide, worldSeed, step) {
 var runtime;
 var queue = Promise.resolve();
 var episodeDone = false;
-var EPISODE_STEP_LIMIT = 256;
+var EPISODE_STEP_LIMIT = 512;
 var root = new URL("../", import.meta.url);
 var status = (message) => self.postMessage({ type: "status", message });
 async function initialize() {

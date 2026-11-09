@@ -4217,8 +4217,8 @@ var Sequence4 = class extends Decoder_default {
     this.decoders = (config.decoders ?? []).map((x) => create_decoder_default(x));
   }
   decode_chain(tokens) {
-    return this.decoders.reduce((toks, decoder2) => {
-      return decoder2.decode_chain(toks);
+    return this.decoders.reduce((toks, decoder3) => {
+      return decoder3.decode_chain(toks);
     }, tokens);
   }
 };
@@ -4546,11 +4546,11 @@ var Tokenizer = class {
    * @returns A Map where keys are token IDs and values are AddedToken objects.
    */
   get_added_tokens_decoder() {
-    const decoder2 = /* @__PURE__ */ new Map();
+    const decoder3 = /* @__PURE__ */ new Map();
     for (const token of this.added_tokens) {
-      decoder2.set(token.id, token);
+      decoder3.set(token.id, token);
     }
-    return decoder2;
+    return decoder3;
   }
   /**
    * Get the underlying vocabulary
@@ -4595,11 +4595,119 @@ function sample(logits, temperature, uniform) {
   return best;
 }
 
+// src/memory-tokens.js
+var WHITESPACE = /* @__PURE__ */ new Set([32, 9, 10, 13, 11, 12, 28, 29, 30, 31]);
+var encoder = new TextEncoder();
+var decoder = new TextDecoder();
+function byteAlphabet() {
+  const bytes = [];
+  for (let b = 33; b <= 126; b += 1) bytes.push(b);
+  for (let b = 161; b <= 172; b += 1) bytes.push(b);
+  for (let b = 174; b <= 255; b += 1) bytes.push(b);
+  const chars = bytes.map((b) => String.fromCodePoint(b));
+  let extra = 0;
+  for (let b = 0; b < 256; b += 1) {
+    if (!bytes.includes(b)) {
+      bytes.push(b);
+      chars.push(String.fromCodePoint(256 + extra));
+      extra += 1;
+    }
+  }
+  return new Map(chars.map((c, i) => [c, bytes[i]]));
+}
+function tokenTable(tokenizerJson) {
+  const alphabet = byteAlphabet();
+  const special = new Set(tokenizerJson.added_tokens.filter((t) => t.special).map((t) => t.id));
+  const size = Math.max(...Object.values(tokenizerJson.model.vocab), ...tokenizerJson.added_tokens.map((t) => t.id)) + 1;
+  const bytes = Array.from({ length: size }, () => new Uint8Array(0));
+  const single = new Int32Array(256).fill(-1);
+  for (const [token, id] of Object.entries(tokenizerJson.model.vocab)) {
+    if (special.has(id)) continue;
+    bytes[id] = Uint8Array.from(Array.from(token, (c) => alphabet.get(c)));
+    if (bytes[id].length === 1) single[bytes[id][0]] = id;
+  }
+  return { bytes, single };
+}
+function memoryPrompt(spec, achievements, memory) {
+  const done = new Set(achievements);
+  const chosen = spec.achievements.filter(([name]) => done.has(name));
+  const ach = chosen.length ? chosen.flatMap(([, first, later], i) => i === 0 ? first : later) : spec.none;
+  const build = (tokens) => [...spec.prefix, ...ach, ...spec.middle, ...tokens.length ? tokens : spec.empty, ...spec.suffix];
+  const ids = build(memory);
+  return ids.length > spec.width && memory.length ? build([]) : ids;
+}
+function find(text, pattern, from) {
+  outer: for (let i = Math.max(0, from); i + pattern.length <= text.length; i += 1) {
+    for (let j = 0; j < pattern.length; j += 1) if (text[i + j] !== pattern[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+function readAnswer(tokens, table2, actions, chars = 300) {
+  const parts = tokens.map((t) => table2.bytes[t] || new Uint8Array(0));
+  const starts = [];
+  let total = 0;
+  for (const part of parts) {
+    starts.push(total);
+    total += part.length;
+  }
+  const text = new Uint8Array(total);
+  parts.forEach((part, i) => text.set(part, starts[i]));
+  const [open, close, memoryOpen, memoryClose] = ["<action>", "</action>", "<memory>", "</memory>"].map((s) => encoder.encode(s));
+  const names = new Map(actions.map((name) => [name, name]));
+  let action = null;
+  let after = -1;
+  for (let at2 = find(text, open, 0); at2 >= 0; at2 = find(text, open, at2 + 1)) {
+    const end = find(text, close, at2 + open.length);
+    if (end < 0) break;
+    let a = at2 + open.length;
+    let b = end;
+    while (a < b && WHITESPACE.has(text[a])) a += 1;
+    while (b > a && WHITESPACE.has(text[b - 1])) b -= 1;
+    const name = decoder.decode(text.subarray(a, b));
+    if (names.has(name)) {
+      action = name;
+      after = end + close.length;
+      break;
+    }
+  }
+  if (action === null) return null;
+  const blockOpen = find(text, memoryOpen, after);
+  if (blockOpen < 0) return null;
+  const blockClose = find(text, memoryClose, blockOpen + memoryOpen.length);
+  if (blockClose < 0) return null;
+  let low = blockOpen + memoryOpen.length;
+  let high = blockClose;
+  while (low < high && WHITESPACE.has(text[low])) low += 1;
+  while (high > low && WHITESPACE.has(text[high - 1])) high -= 1;
+  let count = 0;
+  for (let i = low; i < high; i += 1) {
+    if ((text[i] & 192) !== 128) {
+      count += 1;
+      if (count > chars) {
+        high = i;
+        break;
+      }
+    }
+  }
+  const memory = [];
+  tokens.forEach((token, i) => {
+    const s = starts[i];
+    const e = s + parts[i].length;
+    if (s >= low && e <= high && e > s) memory.push(token);
+    else if (s < high && e > low) {
+      for (let b = Math.max(s, low); b < Math.min(e, high); b += 1) if (table2.single[text[b]] >= 0) memory.push(table2.single[text[b]]);
+    }
+  });
+  return { action, memory, memoryText: decoder.decode(text.subarray(low, high)) };
+}
+
 // src/vision-worker.js
 var vision;
-var decoder;
+var decoder2;
 var tokenizer;
 var manifest;
+var table = null;
 var activeId = null;
 var cancelled = false;
 var loading = false;
@@ -4675,6 +4783,7 @@ async function load(model = "vision-ppo") {
       throw new Error("The model download failed its integrity check. Reload the page and try Run again.");
     }
     tokenizer = new Tokenizer_default(tokenizerJson, tokenizerConfig);
+    table = metadata.memory_prompt ? tokenTable(tokenizerJson) : null;
     const check = tokenizer.encode(metadata.tokenizer_check.text, { add_special_tokens: false }).ids;
     if (JSON.stringify(check) !== JSON.stringify(metadata.tokenizer_check.ids)) {
       throw new Error("Browser tokenizer differs from the exported student tokenizer.");
@@ -4682,7 +4791,7 @@ async function load(model = "vision-ppo") {
     status("Starting ONNX WebAssembly\u2026");
     const options = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
     vision = await Ln.create(visionBytes, options);
-    decoder = await Ln.create(decoderBytes, options);
+    decoder2 = await Ln.create(decoderBytes, options);
     manifest = metadata;
     self.postMessage({ type: "ready", manifest, threads });
   } finally {
@@ -4731,7 +4840,7 @@ function positions(ids) {
   return out;
 }
 async function generate(message) {
-  if (!decoder || loading) throw new Error("Model is not ready");
+  if (!decoder2 || loading) throw new Error("Model is not ready");
   if (activeId !== null) throw new Error("Another response is still being generated");
   activeId = message.id;
   cancelled = false;
@@ -4752,7 +4861,8 @@ async function generate(message) {
     const pixels = keep(new W("float32", patchify(new Uint8Array(message.frame.rgba), message.frame.width), [256, 1536]));
     const seen = await vision.run({ pixel_values: pixels });
     Object.values(seen).forEach(keep);
-    const ids = promptIds(message.accomplished);
+    const tokensIn = Boolean(manifest.memory_prompt && Array.isArray(message.achievements));
+    const ids = tokensIn ? memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens || []) : promptIds(message.accomplished);
     const S = ids.length;
     const start = ids.indexOf(manifest.image_token_id);
     const mask = new Float32Array(S);
@@ -4779,7 +4889,7 @@ async function generate(message) {
         feeds[`past_key_${i}`] = past[2 * i];
         feeds[`past_value_${i}`] = past[2 * i + 1];
       }
-      const result = await decoder.run(feeds);
+      const result = await decoder2.run(feeds);
       const present = [];
       for (let i = 0; i < L; i += 1) present.push(result[`present_key_${i}`], result[`present_value_${i}`]);
       return { logits: result.logits, cache: present };
@@ -4888,6 +4998,7 @@ async function generate(message) {
       cancelled,
       capHit: capHit && !finished
     };
+    if (tokensIn) output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
   } finally {
     tensors.forEach((t) => t.dispose?.());
     cache.forEach((t) => t.dispose?.());

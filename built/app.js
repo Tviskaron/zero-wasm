@@ -148,6 +148,7 @@ var MEMORY_HEADER = "Your memory (written by you at the previous step):";
 var MEMORY_EMPTY = "(empty: this is the first step)";
 var MEMORY_CHARS = 300;
 var memory = "";
+var memoryTokens = [];
 var responseView = new ResponseView($("response"), document.querySelector(".response-wrap"));
 var worldWorker = new Worker(new URL("./world-worker.js", import.meta.url), { type: "module" });
 var modelWorker = null;
@@ -244,8 +245,11 @@ ${next.text.short_term_context}`;
     $("action-note").title = $("action-note").textContent;
   }
 }
+function achievedNames(achievements) {
+  return Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+}
 function accomplishedLine(achievements) {
-  const names = Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+  const names = achievedNames(achievements);
   return "Accomplished achievements: " + (names.length ? names.join(", ") : "none");
 }
 function studentContext(achievements) {
@@ -301,6 +305,7 @@ function generate() {
     frame: world.frame,
     accomplished: studentContext(world.stats.achievements),
     actions: world.actions,
+    ...MEMORY ? { achievements: achievedNames(world.stats.achievements), memoryTokens } : {},
     maxNewTokens: Number($("token-limit").value),
     temperature: Number($("temperature").value),
     samplingSeed: world.sampling.seed,
@@ -471,9 +476,12 @@ function handleModelMessage(worker, data) {
     }
     let parsed;
     if (MEMORY) {
-      const answer = taggedAnswer(data.text, world.actions);
+      const answer = data.answer !== void 0 ? data.answer : taggedAnswer(data.text, world.actions);
       parsed = answer ? answer.action : "";
-      if (answer) memory = answer.memory;
+      if (answer) {
+        memory = answer.memoryText ?? answer.memory;
+        memoryTokens = answer.memoryText === void 0 ? [] : answer.memory;
+      }
     } else {
       parsed = data.text.replace(/[^a-zA-Z\s:]/g, "").split("ACTION:").at(-1).trim();
     }
@@ -521,6 +529,7 @@ $("stop").onclick = () => {
 function startReset(seed) {
   pendingReset = null;
   memory = "";
+  memoryTokens = [];
   resetting = true;
   busy = true;
   autoplay = false;

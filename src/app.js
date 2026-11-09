@@ -10,6 +10,7 @@ const MEMORY_HEADER = 'Your memory (written by you at the previous step):';
 const MEMORY_EMPTY = '(empty: this is the first step)';
 const MEMORY_CHARS = 300;
 let memory = '';  // the memory student's own memory, written at its previous decision and shown to it at the next
+let memoryTokens = [];  // the same memory as the model's own tokens (the worker's prompt, as in training)
 const responseView = new ResponseView($('response'), document.querySelector('.response-wrap'));
 const worldWorker = new Worker(new URL('./world-worker.js', import.meta.url), { type: 'module' });
 let modelWorker = null;
@@ -114,8 +115,12 @@ function renderWorld(next) {
 }
 
 // The vision student's text input, as in its training data: sorted achievement names.
+function achievedNames(achievements) {
+  return Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+}
+
 function accomplishedLine(achievements) {
-  const names = Object.entries(achievements || {}).filter(([, count]) => count > 0).map(([name]) => name).sort();
+  const names = achievedNames(achievements);
   return 'Accomplished achievements: ' + (names.length ? names.join(', ') : 'none');
 }
 
@@ -175,7 +180,7 @@ function generate() {
   $('token-stats').textContent = 'Tokenizing observation…';
   modelWorker.postMessage(VISION ? {
     type: 'generate', id: requestId, frame: world.frame, accomplished: studentContext(world.stats.achievements),
-    actions: world.actions,
+    actions: world.actions, ...(MEMORY ? { achievements: achievedNames(world.stats.achievements), memoryTokens } : {}),
     maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
     samplingSeed: world.sampling.seed, samplingDraws: world.sampling.draws,
   } : {
@@ -347,9 +352,13 @@ function handleModelMessage(worker, data) {
     }
     let parsed;
     if (MEMORY) {  // an invalid answer plays Noop and keeps the old memory, as in training
-      const answer = taggedAnswer(data.text, world.actions);
+      // the worker reads the answer's tokens as training does (memory as its own tokens); older manifests: the text
+      const answer = data.answer !== undefined ? data.answer : taggedAnswer(data.text, world.actions);
       parsed = answer ? answer.action : '';
-      if (answer) memory = answer.memory;
+      if (answer) {
+        memory = answer.memoryText ?? answer.memory;
+        memoryTokens = answer.memoryText === undefined ? [] : answer.memory;
+      }
     } else {
       parsed = data.text.replace(/[^a-zA-Z\s:]/g, '').split('ACTION:').at(-1).trim();
     }
@@ -399,6 +408,7 @@ $('stop').onclick = () => {
 function startReset(seed) {
   pendingReset = null;
   memory = '';  // a new game starts with an empty memory
+  memoryTokens = [];
   resetting = true;
   busy = true;
   autoplay = false;

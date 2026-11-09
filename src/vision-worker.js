@@ -4,11 +4,13 @@
 import * as ort from 'onnxruntime-web/wasm';
 import { Tokenizer } from '@huggingface/tokenizers';
 import { sample } from './sampling.js';
+import { memoryPrompt, readAnswer, tokenTable } from './memory-tokens.js';
 
 let vision;
 let decoder;
 let tokenizer;
 let manifest;
+let table = null;  // token bytes, for the memory student's answers read as in training
 let activeId = null;
 let cancelled = false;
 let loading = false;
@@ -79,6 +81,7 @@ async function load(model = 'vision-ppo') {
       throw new Error('The model download failed its integrity check. Reload the page and try Run again.');
     }
     tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
+    table = metadata.memory_prompt ? tokenTable(tokenizerJson) : null;
     const check = tokenizer.encode(metadata.tokenizer_check.text, { add_special_tokens: false }).ids;
     if (JSON.stringify(check) !== JSON.stringify(metadata.tokenizer_check.ids)) {
       throw new Error('Browser tokenizer differs from the exported student tokenizer.');
@@ -157,7 +160,10 @@ async function generate(message) {
     const pixels = keep(new ort.Tensor('float32', patchify(new Uint8Array(message.frame.rgba), message.frame.width), [256, 1536]));
     const seen = await vision.run({ pixel_values: pixels });
     Object.values(seen).forEach(keep);
-    const ids = promptIds(message.accomplished);
+    // the memory student with a manifest from its training pieces: its own memory tokens, as in training
+    const tokensIn = Boolean(manifest.memory_prompt && Array.isArray(message.achievements));
+    const ids = tokensIn ? memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens || [])
+      : promptIds(message.accomplished);
     const S = ids.length;
     const start = ids.indexOf(manifest.image_token_id);
     const mask = new Float32Array(S);
@@ -287,6 +293,7 @@ async function generate(message) {
     const text = generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : '';
     output = { type: 'result', id: activeId, text, tokens: generated.length, seconds: (performance.now() - started) / 1000,
       cancelled, capHit: capHit && !finished };
+    if (tokensIn) output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
   } finally {
     tensors.forEach((t) => t.dispose?.());
     cache.forEach((t) => t.dispose?.());

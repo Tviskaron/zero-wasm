@@ -84,13 +84,19 @@ keeps its own memory. Each step it sees the 256×256 game screen, the
 and answers `<reasoning>…</reasoning>`, `<action>NAME</action>` and
 `<memory>…</memory>`; the new memory replaces the old one. Its tokenizer is made of
 4,093 of the teacher's (Qwen3.8-Flash-Next) own tokens. It was trained from
-scratch on 2.72M teacher decisions whose memories and reasoning were checked
-against the game and corrected (8.78 ± 0.13 achievements on the held-out worlds),
-then with PPO for 12.42M environment steps with a KL anchor on its reasoning and
+scratch on 4.40M teacher decisions whose memories and reasoning were checked
+against the game and corrected (9.00 ± 0.16 achievements on the held-out worlds,
+2 sampling seeds, memory passed back as its own tokens),
+then with PPO for 26.59M environment steps with a KL anchor on its reasoning and
 memory text and regular training on the teacher's text, so the text stays readable
 while the score rises. On the same 128 held-out worlds with 3 sampling seeds it
-scores 15.53 ± 0.13 achievements per game. PPO ran with
-[hero-factory](https://github.com/Tviskaron/hero-factory) on 2 A100s, each GPU
+scores 16.76 ± 0.11 achievements per game (the previous release, 12.42M steps:
+15.53 ± 0.13), and 16.93 when its memory is passed back as its own tokens. The page
+does the latter, as training did: the prompt is built from the same token pieces as
+in training ([`src/memory-tokens.js`](src/memory-tokens.js), checked against the
+training code in `tests/memory-tokens.test.mjs`), and the memory keeps the model's
+own tokens instead of its text encoded again. PPO ran with
+[hero-factory](https://github.com/Tviskaron/hero-factory) on 4 H200s, each GPU
 alternating between playing (generating answers) and training. While the player sleeps below full energy the model is not
 asked, as in training. The page shows each answer as reasoning, action and memory
 blocks, with the model's probability of the action it wrote (all 17 action names

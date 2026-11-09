@@ -97,6 +97,42 @@ test('the default page runs the memory student: tagged answers, its memory carri
   assert.match(fourth.request.accomplished, /\(empty: this is the first step\)$/);  // a new game starts empty
 });
 
+test('the memory student gets back its own memory tokens when the worker reads its answers', () => {
+  const ui = boot(memoryHtml);
+  const [world, model] = ui.workers;
+  const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
+  const state = (action) => ({
+    type: 'world', done: false, action, reward: 0, frame,
+    text: { long_term_context: 'unused', short_term_context: 'unused' }, history: [], instructions: '', prompt: '',
+    actions: ['Noop', 'Move East'], stats: { seed: 0, steps: 0, inventory: {}, achievements: { place_table: 1, collect_wood: 2 } },
+    sampling: { seed: 1, draws: new Float64Array(1024).fill(0.5) },
+  });
+  world.emit(state(null));
+  model.emit({ type: 'ready', threads: 1, manifest: { label: 'Vision memory PPO', parameters: 12593280 } });
+  const decide = (answer) => {
+    ui.get('step').onclick();
+    const request = model.messages.filter((message) => message.type === 'generate').at(-1);
+    model.emit({ type: 'result', id: request.id, text: 'x', tokens: 20, seconds: 1, answer });
+    const step = world.messages.filter((message) => message.type === 'step').at(-1);
+    world.emit(state(step.action || 'Noop'));
+    return { request, step };
+  };
+  const first = decide({ action: 'Move East', memory: [11, 12, 13], memoryText: 'Table east.' });
+  const list = (value) => Array.from(value);  // arrays from the page's own realm
+  assert.deepEqual(list(first.request.achievements), ['collect_wood', 'place_table']);
+  assert.deepEqual(list(first.request.memoryTokens), []);
+  assert.equal(first.step.action, 'Move East');
+  const second = decide(null);  // invalid: Noop, the memory stays
+  assert.deepEqual(list(second.request.memoryTokens), [11, 12, 13]);
+  assert.match(second.request.accomplished, /Table east\.$/);
+  assert.equal(second.step.action, '');
+  const third = decide({ action: 'Noop', memory: [], memoryText: '' });
+  assert.deepEqual(list(third.request.memoryTokens), [11, 12, 13]);
+  ui.get('reset').onclick();
+  world.emit(state(null));
+  assert.deepEqual(list(decide(null).request.memoryTokens), []);  // a new game starts empty
+});
+
 test('while asleep with energy below the maximum the vision agents are not asked and the world sleeps', () => {
   const ui = boot(memoryHtml);
   const [world, model] = ui.workers;

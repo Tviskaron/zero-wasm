@@ -86,10 +86,12 @@ and answers `<reasoning>…</reasoning>`, `<action>NAME</action>` and
 4,093 of the teacher's (Qwen3.8-Flash-Next) own tokens. It was trained from
 scratch on 2.72M teacher decisions whose memories and reasoning were checked
 against the game and corrected (8.78 ± 0.13 achievements on the held-out worlds),
-then with PPO for 4.44M environment steps with a KL anchor on its reasoning and
+then with PPO for 12.42M environment steps with a KL anchor on its reasoning and
 memory text and regular training on the teacher's text, so the text stays readable
 while the score rises. On the same 128 held-out worlds with 3 sampling seeds it
-scores 13.95 ± 0.15 (the run's best checkpoint). While the player sleeps below full energy the model is not
+scores 15.53 ± 0.13 achievements per game. PPO ran with
+[hero-factory](https://github.com/Tviskaron/hero-factory) on 2 A100s, each GPU
+alternating between playing (generating answers) and training. While the player sleeps below full energy the model is not
 asked, as in training. The page shows each answer as reasoning, action and memory
 blocks, with the model's probability of the action it wrote (all 17 action names
 are scored where the answer starts its action). The model is in

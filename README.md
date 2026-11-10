@@ -87,15 +87,13 @@ and answers `<reasoning>…</reasoning>`, `<action>NAME</action>` and
 scratch on 4.40M teacher decisions whose memories and reasoning were checked
 against the game and corrected (9.00 ± 0.16 achievements on the held-out worlds,
 2 sampling seeds, memory passed back as its own tokens),
-then with PPO for 90.23M environment steps with a KL anchor on its reasoning and
+then with PPO for 26.59M environment steps with a KL anchor on its reasoning and
 memory text and regular training on the teacher's text, so the text stays readable
-while the score rises. This checkpoint has not been run on the held-out worlds; in
-its last 3,000 training games it unlocked 17.9 achievements per game on average
-(iron pickaxe in 74% of games, diamond in 27%). The previous release, after 26.59M
-steps, scored 16.76 ± 0.11 on the 128 held-out worlds with 3 sampling seeds (12.42M
-steps: 15.53 ± 0.13), and 16.93 when its memory is passed back as its own tokens. The
-page does the latter, as training did: the prompt is built from the same token pieces
-as in training ([`src/memory-tokens.js`](src/memory-tokens.js), checked against the
+while the score rises. On the same 128 held-out worlds with 3 sampling seeds it
+scores 16.76 ± 0.11 achievements per game (the previous release, 12.42M steps:
+15.53 ± 0.13), and 16.93 when its memory is passed back as its own tokens. The page
+does the latter, as training did: the prompt is built from the same token pieces as
+in training ([`src/memory-tokens.js`](src/memory-tokens.js), checked against the
 training code in `tests/memory-tokens.test.mjs`), and the memory keeps the model's
 own tokens instead of its text encoded again. PPO ran with
 [hero-factory](https://github.com/Tviskaron/hero-factory) on 4 H200s, each GPU

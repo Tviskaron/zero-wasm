@@ -57,14 +57,14 @@
   "validation": {
     "errors": {
       "vision": 1.9073486328125e-05,
-      "prefill_logits": 6.67572021484375e-06
+      "prefill_logits": 9.5367431640625e-06
     },
     "greedy_tokens_checked": 24,
     "reference": "Transformers 4.57.1 eager FP32"
   },
-  "checkpoint": "selectel:herofactory/runs/20261109T0025_selectel_chain/ppo_ce/release_candidates/90226688",
-  "vision_sha256": "dd2b2ebfdd2915c4d71c2a36fbed0d615b8c923710ed037e66bde77a256a9b23",
-  "decoder_sha256": "81152ee39c23146302d645acac0896a0598b445b957800b840572fb0958dd798",
+  "checkpoint": "selectel:herofactory/runs/20261109T0025_selectel_chain/ppo_ce/release_candidates/26591232",
+  "vision_sha256": "e66a080f157c3fb70a6bdd8096b3682c71443567730218f75f0a757659e0b7b3",
+  "decoder_sha256": "47c17e2a3443b6f8ebd861370f89ab6a361cd6a190588a67effe55c40b930b0f",
   "memory": {
     "format": "relative",
     "answer": "tagged",
@@ -584,14 +584,14 @@
       ]
     ]
   },
-  "label": "Vision memory PPO, 90.23M env steps",
+  "label": "Vision memory PPO, 26.59M env steps",
   "parameters": 12593280,
   "vision_bytes": 30370384,
   "decoder_bytes": 24478266,
   "provenance": {
     "student": "relative-memory vision student on the teacher's tokens (4,093 Qwen3.8-Flash-Next tokens, tags in the teacher's pieces), trained from scratch with cross-entropy on the 4.40M cleaned memory+medium teacher decisions of a 6.25M-decision collection that have the teacher's top-20 (the top-20 itself was not used): 9.00 +- 0.16 on the 128 held-out worlds (GPU evaluator, 2 sampling seeds; the earlier 2.72M-decision student 8.86 there)",
-    "training": "PPO with hero-factory (github.com/Tviskaron/hero-factory) on selectel, H200s with one process per GPU and rollout and training on the same GPU (3 GPUs and 384 worlds each until 3.69M env steps, then 4 GPUs with 1,024 and from 7.72M 2,048 worlds each), run 20261109T0025_selectel_chain/ppo_ce from that SFT student: automatic sleep, standard reward, top-20 text KL to the SFT student as a fixed anchor, teacher-text phase every 2 iterations (with the teacher's top-20 KL on its text tokens, without row-by-row screen readings), answers must begin with <reasoning> and end after </memory>, BF16 learner and sampler, the memory carried as the model's own tokens; checkpoint_000195954_90226688 (90,226,688 env steps)",
-    "held_out": "not measured for this checkpoint; training episodes just before it (3,000 games): 17.9 achievements per game. The previous release (26.59M env steps): 16.76 +- 0.11 on the 128 held-out worlds (3 sampling seeds, memory text encoded again), 16.93 with the memory as its own tokens",
-    "sample_factory_checkpoint_sha256": "57326fb29e1c120409c1000d46754b011a1380b55c08ee01f84e4b42dd8f0a9c"
+    "training": "PPO with hero-factory (github.com/Tviskaron/hero-factory) on selectel, H200s with one process per GPU and rollout and training on the same GPU (3 GPUs and 384 worlds each until 3.69M env steps, then 4 GPUs with 1,024 and from 7.72M 2,048 worlds each), run 20261109T0025_selectel_chain/ppo_ce from that SFT student: automatic sleep, standard reward, top-20 text KL to the SFT student as a fixed anchor, teacher-text phase every 2 iterations (with the teacher's top-20 KL on its text tokens, without row-by-row screen readings), answers must begin with <reasoning> and end after </memory>, BF16 learner and sampler, the memory carried as the model's own tokens; checkpoint_000071181_26591232 (26,591,232 env steps)",
+    "held_out": "16.76 +- 0.11 on the same 128 worlds with the memory text encoded again (stock Crafter and Transformers, 3 sampling seeds, 384 games; per seed 16.66, 16.59, 17.04); 16.93 with the memory carried as the model's own tokens, as this page plays it (GPU evaluator, FP32; per seed 16.80, 16.97, 17.01). The previous release (12.42M env steps): 15.53 +- 0.13 the first way",
+    "sample_factory_checkpoint_sha256": "6ecf691d81e2f488e456d9f1067a563ac596150619b13346b851147cce2de9b7"
   }
 }

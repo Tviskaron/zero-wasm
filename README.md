@@ -87,15 +87,20 @@ and answers `<reasoning>…</reasoning>`, `<action>NAME</action>` and
 scratch on 4.40M teacher decisions whose memories and reasoning were checked
 against the game and corrected (9.00 ± 0.16 achievements on the held-out worlds,
 2 sampling seeds, memory passed back as its own tokens),
-then with PPO for 26.59M environment steps with a KL anchor on its reasoning and
-memory text and regular training on the teacher's text, so the text stays readable
-while the score rises. On the same 128 held-out worlds with 3 sampling seeds it
-scores 16.76 ± 0.11 achievements per game (the previous release, 12.42M steps:
-15.53 ± 0.13), and 16.93 when its memory is passed back as its own tokens. The page
-does the latter, as training did: the prompt is built from the same token pieces as
-in training ([`src/memory-tokens.js`](src/memory-tokens.js), checked against the
-training code in `tests/memory-tokens.test.mjs`), and the memory keeps the model's
-own tokens instead of its text encoded again. PPO ran with
+then with PPO for 48.02M environment steps with a KL anchor on its whole answer
+except the action name (reasoning, memory, tags and layout) and regular training on
+the teacher's text, so the text stays readable while the score rises. Answers with
+more than one action block count as invalid: an earlier run without that rule
+drifted into repeating the action block. This checkpoint has not been run on the
+held-out worlds; in its last training games it unlocked 17.7 achievements per game
+on average (sleeps through a night in 69% of games, iron pickaxe in 58%, diamond in
+15%). The checkpoint it continues from, after 26.59M steps, scored 16.76 ± 0.11 on
+the 128 held-out worlds with 3 sampling seeds (12.42M steps: 15.53 ± 0.13), and
+16.93 when its memory is passed back as its own tokens. The page does the latter, as
+training did: the prompt is built from the same token pieces as in training
+([`src/memory-tokens.js`](src/memory-tokens.js), checked against the training code in
+`tests/memory-tokens.test.mjs`), and the memory keeps the model's own tokens instead
+of its text encoded again. PPO ran with
 [hero-factory](https://github.com/Tviskaron/hero-factory) on 4 H200s, each GPU
 alternating between playing (generating answers) and training. While the player sleeps below full energy the model is not
 asked, as in training. The page shows each answer as reasoning, action and memory

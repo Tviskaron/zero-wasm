@@ -56,15 +56,15 @@
   },
   "validation": {
     "errors": {
-      "vision": 2.288818359375e-05,
-      "prefill_logits": 9.5367431640625e-06
+      "vision": 2.6702880859375e-05,
+      "prefill_logits": 1.1444091796875e-05
     },
     "greedy_tokens_checked": 24,
     "reference": "Transformers 4.57.1 eager FP32"
   },
-  "checkpoint": "selectel:herofactory/runs/20261109T0025_selectel_chain/ppo_fmt/release_candidates/48021504",
-  "vision_sha256": "0713c9bd7fb4f34f9b015a8dc0d26540e7268907a7227963a1a9c4d2d6900ae2",
-  "decoder_sha256": "05b1b0f065c33b10599c8168287ee01b56ecc9129ac61853389c4d2bd4d2c3fe",
+  "checkpoint": "selectel:herofactory/runs/20261109T0025_selectel_chain/ppo_8gpu/train/ppo/checkpoint_p0/checkpoint_000192098_125681664.pth",
+  "vision_sha256": "33b8b6616732a558dc6ca15b7219997786f7dcaf3e6f10ed38382cf82313a1bb",
+  "decoder_sha256": "347f7db12d88d20d4c7339b59fa64a8811fc647224ad9032c5d220221e38e5d3",
   "memory": {
     "format": "relative",
     "answer": "tagged",
@@ -584,14 +584,14 @@
       ]
     ]
   },
-  "label": "Vision memory PPO, 48.02M env steps",
+  "label": "Vision memory PPO, 125.68M env steps",
   "parameters": 12593280,
   "vision_bytes": 30370384,
   "decoder_bytes": 24478266,
   "provenance": {
     "student": "relative-memory vision student on the teacher's tokens (4,093 Qwen3.8-Flash-Next tokens, tags in the teacher's pieces), trained from scratch with cross-entropy on the 4.40M cleaned memory+medium teacher decisions of a 6.25M-decision collection that have the teacher's top-20 (the top-20 itself was not used): 9.00 +- 0.16 on the 128 held-out worlds (GPU evaluator, 2 sampling seeds; the earlier 2.72M-decision student 8.86 there)",
-    "training": "PPO with hero-factory (github.com/Tviskaron/hero-factory) on selectel, 4 H200s with one process per GPU and rollout and training on the same GPU, from the SFT student: run 20261109T0025_selectel_chain/ppo_ce to 26,591,232 env steps (3 GPUs and 384 worlds each until 3.69M, then 4 GPUs with 1,024 and from 7.72M 2,048 worlds each), then ppo_fmt from that checkpoint with the answer format protected: the text KL to the SFT student covers every answer token but the action name, and an answer with more than one <action> block is invalid (from ~29.6M env steps ppo_ce had drifted into repeating the action block). Otherwise: automatic sleep, standard reward, teacher-text phase every 2 iterations (with the teacher's top-20 KL on its text tokens, without row-by-row screen readings), answers must begin with <reasoning> and end after </memory>, BF16 learner and sampler, the memory carried as the model's own tokens; ppo_fmt checkpoint_000113200_48021504 (48,021,504 env steps)",
-    "held_out": "not measured for this checkpoint; training games just before it: 17.7 achievements per game (wake up 69%, iron pickaxe 58%, diamond 15%). The 26.59M checkpoint it continues from: 16.76 +- 0.11 on the 128 held-out worlds (3 sampling seeds, memory text encoded again), 16.93 with the memory as its own tokens",
-    "sample_factory_checkpoint_sha256": "d4770a39eeb0172c5236395f19a746bb37dd1127857162284d2d7c857a8e8f9a"
+    "training": "PPO with hero-factory (github.com/Tviskaron/hero-factory) on selectel, 4 H200s with one process per GPU and rollout and training on the same GPU, from the SFT student: run 20261109T0025_selectel_chain/ppo_ce to 26,591,232 env steps (3 GPUs and 384 worlds each until 3.69M, then 4 GPUs with 1,024 and from 7.72M 2,048 worlds each), then ppo_fmt from that checkpoint with the answer format protected: the text KL to the SFT student covers every answer token but the action name, and an answer with more than one <action> block is invalid (from ~29.6M env steps ppo_ce had drifted into repeating the action block). Otherwise: automatic sleep, standard reward, teacher-text phase every 2 iterations (with the teacher's top-20 KL on its text tokens, without row-by-row screen readings), answers must begin with <reasoning> and end after </memory>, BF16 learner and sampler, the memory carried as the model's own tokens; ppo_fmt to 50,839,552 env steps (its best training reward), then ppo_8gpu from that checkpoint on 8 H200s, where an answer with more than one <memory> block is invalid too (2,048 worlds x 8 steps per GPU, from 61.06M 4,096 x 4; teacher-text phase with the teacher's top-20 on every shard): checkpoint_000192098_125681664 (125,681,664 env steps)",
+    "held_out": "18.94 +- 0.11 achievements on the 128 held-out worlds (GPU evaluator, memory carried as the model's own tokens, sampling seeds 1-3: 18.95, 19.09, 18.80), 0.64 invalid answers per game; same evaluation: 105.1M 18.82, 84.0M 18.84, 50.8M 18.19, 48.0M 17.90, 26.59M 16.93",
+    "sample_factory_checkpoint_sha256": "8ffa8913e662700e5a17ecd382588d7fadbc3880c542dc4e675161f0d367d3b8"
   }
 }

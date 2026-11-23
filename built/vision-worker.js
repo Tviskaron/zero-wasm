@@ -4713,7 +4713,7 @@ var cancelled = false;
 var loading = false;
 var threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 var siteRoot = new URL("../", import.meta.url);
-var modelRoot = new URL("assets/models/vision-ppo/", siteRoot);
+var modelRoot = new URL("assets/models/vision-memory/", siteRoot);
 I.wasm.wasmPaths = new URL("vendor/ort/", siteRoot).href;
 I.wasm.numThreads = threads;
 I.wasm.proxy = false;
@@ -4742,7 +4742,9 @@ async function downloadAll(files) {
     }
   };
   return Promise.all(files.map(async (file, index) => {
-    const response = await fetch(new URL(file.name, modelRoot));
+    const url = new URL(file.name, modelRoot);
+    url.searchParams.set("sha256", file.sha256);
+    const response = await fetch(url);
     if (!response.ok) throw new Error(`Model download failed (HTTP ${response.status}).`);
     if (!response.body?.getReader) return response.arrayBuffer();
     const reader = response.body.getReader();
@@ -4763,10 +4765,8 @@ async function downloadAll(files) {
     return bytes.buffer;
   }));
 }
-async function load(model = "vision-ppo") {
+async function load() {
   if (loading || activeId !== null) throw new Error("The model is busy.");
-  if (!/^[a-z-]+$/.test(model)) throw new Error("Unknown vision model");
-  modelRoot = new URL(`assets/models/${model}/`, siteRoot);
   loading = true;
   try {
     status("Downloading the vision model\u2026");
@@ -4776,14 +4776,14 @@ async function load(model = "vision-ppo") {
       readJson("tokenizer_config.json")
     ]);
     const [visionBytes, decoderBytes] = await downloadAll([
-      { name: "vision.onnx", bytes: metadata.vision_bytes },
-      { name: "decoder.onnx", bytes: metadata.decoder_bytes }
+      { name: "vision.onnx", bytes: metadata.vision_bytes, sha256: metadata.vision_sha256 },
+      { name: "decoder.onnx", bytes: metadata.decoder_bytes, sha256: metadata.decoder_sha256 }
     ]);
     if (await sha256(visionBytes) !== metadata.vision_sha256 || await sha256(decoderBytes) !== metadata.decoder_sha256) {
       throw new Error("The model download failed its integrity check. Reload the page and try Run again.");
     }
     tokenizer = new Tokenizer_default(tokenizerJson, tokenizerConfig);
-    table = metadata.memory_prompt ? tokenTable(tokenizerJson) : null;
+    table = tokenTable(tokenizerJson);
     const check = tokenizer.encode(metadata.tokenizer_check.text, { add_special_tokens: false }).ids;
     if (JSON.stringify(check) !== JSON.stringify(metadata.tokenizer_check.ids)) {
       throw new Error("Browser tokenizer differs from the exported student tokenizer.");
@@ -4817,11 +4817,6 @@ function patchify(rgba, width) {
     }
   }
   return out;
-}
-function promptIds(accomplished) {
-  const encode = (text) => tokenizer.encode(text, { add_special_tokens: false }).ids;
-  const image = [manifest.vision_start_id, ...Array(manifest.vision_tokens).fill(manifest.image_token_id), manifest.vision_end_id];
-  return [...encode("System:\n" + manifest.system + "\nUser:\n"), ...image, ...encode("\n" + accomplished + "\nAssistant:\n")];
 }
 function positions(ids) {
   const start = ids.indexOf(manifest.image_token_id);
@@ -4861,8 +4856,7 @@ async function generate(message) {
     const pixels = keep(new W("float32", patchify(new Uint8Array(message.frame.rgba), message.frame.width), [256, 1536]));
     const seen = await vision.run({ pixel_values: pixels });
     Object.values(seen).forEach(keep);
-    const tokensIn = Boolean(manifest.memory_prompt && Array.isArray(message.achievements));
-    const ids = tokensIn ? memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens || []) : promptIds(message.accomplished);
+    const ids = memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens);
     const S = ids.length;
     const start = ids.indexOf(manifest.image_token_id);
     const mask = new Float32Array(S);
@@ -4900,11 +4894,8 @@ async function generate(message) {
       cache = result.cache;
       return result.logits;
     }
-    async function actionDistribution(names2, rest, closing, first, past, position) {
-      const sequences = names2.map((name) => {
-        const tokens = tokenizer.encode(rest + name + closing.text, { add_special_tokens: false }).ids;
-        return closing.eos ? [...tokens, manifest.eos_token_id] : tokens;
-      });
+    async function actionDistribution(names2, rest, first, past, position) {
+      const sequences = names2.map((name) => tokenizer.encode(rest + name + "</action>", { add_special_tokens: false }).ids);
       const root = { children: /* @__PURE__ */ new Map(), ends: [] };
       sequences.forEach((tokens, index) => {
         let node = root;
@@ -4957,17 +4948,15 @@ async function generate(message) {
         break;
       }
       generated.push(token);
-      if (!scored && /[>:]/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
+      if (!scored && />/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
         const text2 = tokenizer.decode(generated, { skip_special_tokens: true });
-        const tagged = text2.indexOf("<action>");
-        const plain = text2.lastIndexOf("ACTION:");
-        const end = tagged >= 0 ? tagged + "<action>".length : plain >= 0 ? plain + "ACTION:".length : -1;
-        if (end >= 0) {
+        const marker = "<action>";
+        const index = text2.indexOf(marker);
+        if (index >= 0) {
           scored = true;
           const before = tokenizer.decode(generated.slice(0, -1), { skip_special_tokens: true });
-          const rest = text2.slice(before.length, end) + (tagged >= 0 ? "" : " ");
-          const closing = tagged >= 0 ? { text: "</action>", eos: false } : { text: "", eos: true };
-          const result = await actionDistribution(names, rest, closing, here, cache, lastPosition);
+          const rest = text2.slice(before.length, index + marker.length);
+          const result = await actionDistribution(names, rest, here, cache, lastPosition);
           self.postMessage({ type: "actions", id: activeId, ...result });
         }
       }
@@ -4998,7 +4987,7 @@ async function generate(message) {
       cancelled,
       capHit: capHit && !finished
     };
-    if (tokensIn) output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
+    output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
   } finally {
     tensors.forEach((t) => t.dispose?.());
     cache.forEach((t) => t.dispose?.());
@@ -5011,7 +5000,7 @@ self.onmessage = ({ data }) => {
     if (data.id === activeId) cancelled = true;
     return;
   }
-  const task = data.type === "load" ? load(data.model) : data.type === "generate" ? generate(data) : Promise.reject(new Error("Unknown model command"));
+  const task = data.type === "load" ? load() : data.type === "generate" ? generate(data) : Promise.reject(new Error("Unknown model command"));
   task.catch((error) => self.postMessage({ type: "error", id: data.id ?? null, message: error.stack || String(error) }));
 };
 /*! Bundled license information:

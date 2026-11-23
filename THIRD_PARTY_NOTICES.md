@@ -7,25 +7,15 @@ license or additional license grant for the model weights is added here.
 
 ## Model and game sources
 
-The published actor is
-[`RLMM/zerohero-crafter-5m-ppo`](https://huggingface.co/RLMM/zerohero-crafter-5m-ppo),
-revision `6c8a3bf6884c814d19e521551f2b48ee3c20252c` (`ppo-iter-0300`),
-with 5,033,600 parameters. The browser artifact is an FP32 ONNX conversion of
-that release. Publisher provenance and export metadata are retained in
-[`assets/models/ppo/manifest.json`](assets/models/ppo/manifest.json).
-
-```text
-Original model.safetensors SHA-256:
-ff56252479716d153a31e100a3dbadf54f8571912bc352ec0222106db5ad0b10
-Browser model.onnx SHA-256:
-3cd787540265f4d908954b78aba4d45a07926069a81496244b0f7441434f3cb3
-```
+The demo ships a ZeroHero 12,593,280-parameter Qwen3-VL student trained on Crafter.
+Its [release manifest](assets/models/vision-memory/manifest.json) records the checkpoint,
+the FP32 ONNX graph hashes and the conversion checks.
 
 `assets/world.zip` retains original Crafter sources, graphics, and dependencies.
 BALROG observation functions and instructions come from commit
 `b7afe79e3e4265811cfa985ed7c95c4d1a11e3f5`. The browser bridge normalizes terrain
 seeds to the original 64-bit Python behavior and retains the original
-2,000-decision horizon. The demo's browser worker applies a shorter 256-step
+2,000-decision horizon. The demo's browser worker applies a shorter 512-step
 time limit and reports truncation separately. Individual source hashes are in
 `assets/world-provenance.json`.
 

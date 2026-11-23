@@ -1,6 +1,6 @@
 {
   "name": "zero-wasm",
-  "description": "Crafter and a 5M language agent running locally in browser WebAssembly",
+  "description": "Crafter and a 12.6M screen-and-memory agent running locally in browser WebAssembly",
   "private": true,
   "version": "0.1.0",
   "type": "module",

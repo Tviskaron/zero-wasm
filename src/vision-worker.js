@@ -1,6 +1,4 @@
-// The 12.6M screen students (random-init Qwen3-VL, supervised on Qwen Next reasoning, then PPO) in ONNX WebAssembly.
-// Input: the 256x256 game screen and the text after it (the accomplished-achievements line, and for the memory
-// student its carried memory). Output: reasoning, then the action (and the memory student's new memory).
+// Run the screen-and-memory student in browser WebAssembly.
 import * as ort from 'onnxruntime-web/wasm';
 import { Tokenizer } from '@huggingface/tokenizers';
 import { sample } from './sampling.js';
@@ -16,7 +14,7 @@ let cancelled = false;
 let loading = false;
 const threads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
 const siteRoot = new URL('../', import.meta.url);
-let modelRoot = new URL('assets/models/vision-ppo/', siteRoot);
+const modelRoot = new URL('assets/models/vision-memory/', siteRoot);
 ort.env.wasm.wasmPaths = new URL('vendor/ort/', siteRoot).href;
 ort.env.wasm.numThreads = threads;
 ort.env.wasm.proxy = false;
@@ -45,7 +43,9 @@ async function downloadAll(files) {
     if (now - lastUpdate > 100 || sum === total) { self.postMessage({ type: 'download', loaded: sum, total }); lastUpdate = now; }
   };
   return Promise.all(files.map(async (file, index) => {
-    const response = await fetch(new URL(file.name, modelRoot));
+    const url = new URL(file.name, modelRoot);
+    url.searchParams.set('sha256', file.sha256);
+    const response = await fetch(url);
     if (!response.ok) throw new Error(`Model download failed (HTTP ${response.status}).`);
     if (!response.body?.getReader) return response.arrayBuffer();
     const reader = response.body.getReader();
@@ -64,10 +64,8 @@ async function downloadAll(files) {
   }));
 }
 
-async function load(model = 'vision-ppo') {
+async function load() {
   if (loading || activeId !== null) throw new Error('The model is busy.');
-  if (!/^[a-z-]+$/.test(model)) throw new Error('Unknown vision model');
-  modelRoot = new URL(`assets/models/${model}/`, siteRoot);
   loading = true;
   try {
     status('Downloading the vision model…');
@@ -75,13 +73,14 @@ async function load(model = 'vision-ppo') {
       readJson('manifest.json'), readJson('tokenizer.json'), readJson('tokenizer_config.json'),
     ]);
     const [visionBytes, decoderBytes] = await downloadAll([
-      { name: 'vision.onnx', bytes: metadata.vision_bytes }, { name: 'decoder.onnx', bytes: metadata.decoder_bytes },
+      { name: 'vision.onnx', bytes: metadata.vision_bytes, sha256: metadata.vision_sha256 },
+      { name: 'decoder.onnx', bytes: metadata.decoder_bytes, sha256: metadata.decoder_sha256 },
     ]);
     if (await sha256(visionBytes) !== metadata.vision_sha256 || await sha256(decoderBytes) !== metadata.decoder_sha256) {
       throw new Error('The model download failed its integrity check. Reload the page and try Run again.');
     }
     tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
-    table = metadata.memory_prompt ? tokenTable(tokenizerJson) : null;
+    table = tokenTable(tokenizerJson);
     const check = tokenizer.encode(metadata.tokenizer_check.text, { add_special_tokens: false }).ids;
     if (JSON.stringify(check) !== JSON.stringify(metadata.tokenizer_check.ids)) {
       throw new Error('Browser tokenizer differs from the exported student tokenizer.');
@@ -119,12 +118,6 @@ function patchify(rgba, width) {
   return out;
 }
 
-function promptIds(accomplished) {
-  const encode = (text) => tokenizer.encode(text, { add_special_tokens: false }).ids;
-  const image = [manifest.vision_start_id, ...Array(manifest.vision_tokens).fill(manifest.image_token_id), manifest.vision_end_id];
-  return [...encode('System:\n' + manifest.system + '\nUser:\n'), ...image, ...encode('\n' + accomplished + '\nAssistant:\n')];
-}
-
 // MRoPE positions for one image (Qwen3VLModel.get_rope_index).
 function positions(ids) {
   const start = ids.indexOf(manifest.image_token_id);
@@ -160,10 +153,7 @@ async function generate(message) {
     const pixels = keep(new ort.Tensor('float32', patchify(new Uint8Array(message.frame.rgba), message.frame.width), [256, 1536]));
     const seen = await vision.run({ pixel_values: pixels });
     Object.values(seen).forEach(keep);
-    // the memory student with a manifest from its training pieces: its own memory tokens, as in training
-    const tokensIn = Boolean(manifest.memory_prompt && Array.isArray(message.achievements));
-    const ids = tokensIn ? memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens || [])
-      : promptIds(message.accomplished);
+    const ids = memoryPrompt(manifest.memory_prompt, message.achievements, message.memoryTokens);
     const S = ids.length;
     const start = ids.indexOf(manifest.image_token_id);
     const mask = new Float32Array(S);
@@ -207,11 +197,9 @@ async function generate(message) {
     // (the rest of the action marker, the name, then the closing tag or the end of the answer) on top of the cache,
     // and the scores are normalized over the names. Names share their first tokens ("Move", "Make", "Place"), so the
     // continuations form a tree and each shared prefix runs once.
-    async function actionDistribution(names, rest, closing, first, past, position) {
-      const sequences = names.map((name) => {
-        const tokens = tokenizer.encode(rest + name + closing.text, { add_special_tokens: false }).ids;
-        return closing.eos ? [...tokens, manifest.eos_token_id] : tokens;
-      });
+    async function actionDistribution(names, rest, first, past, position) {
+      const sequences = names.map((name) =>
+        tokenizer.encode(rest + name + '</action>', { add_special_tokens: false }).ids);
       const root = { children: new Map(), ends: [] };
       sequences.forEach((tokens, index) => {
         let node = root;
@@ -264,19 +252,15 @@ async function generate(message) {
       logits.dispose();
       if (token === manifest.eos_token_id) { finished = true; break; }
       generated.push(token);
-      if (!scored && /[>:]/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
-        // The answer starts its action with this token: tagged answers "<action>NAME</action>", the screen-only
-        // student "ACTION: NAME" at the end. The rest of the marker comes from this token, then each name.
+      if (!scored && />/.test(tokenizer.decode([token], { skip_special_tokens: true }))) {
         const text = tokenizer.decode(generated, { skip_special_tokens: true });
-        const tagged = text.indexOf('<action>');
-        const plain = text.lastIndexOf('ACTION:');
-        const end = tagged >= 0 ? tagged + '<action>'.length : plain >= 0 ? plain + 'ACTION:'.length : -1;
-        if (end >= 0) {
+        const marker = '<action>';
+        const index = text.indexOf(marker);
+        if (index >= 0) {
           scored = true;
           const before = tokenizer.decode(generated.slice(0, -1), { skip_special_tokens: true });
-          const rest = text.slice(before.length, end) + (tagged >= 0 ? '' : ' ');
-          const closing = tagged >= 0 ? { text: '</action>', eos: false } : { text: '', eos: true };
-          const result = await actionDistribution(names, rest, closing, here, cache, lastPosition);
+          const rest = text.slice(before.length, index + marker.length);
+          const result = await actionDistribution(names, rest, here, cache, lastPosition);
           self.postMessage({ type: 'actions', id: activeId, ...result });
         }
       }
@@ -293,7 +277,7 @@ async function generate(message) {
     const text = generated.length ? tokenizer.decode(generated, { skip_special_tokens: true }) : '';
     output = { type: 'result', id: activeId, text, tokens: generated.length, seconds: (performance.now() - started) / 1000,
       cancelled, capHit: capHit && !finished };
-    if (tokensIn) output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
+    output.answer = readAnswer(generated, table, names, manifest.memory?.chars ?? 300);
   } finally {
     tensors.forEach((t) => t.dispose?.());
     cache.forEach((t) => t.dispose?.());
@@ -304,6 +288,6 @@ async function generate(message) {
 
 self.onmessage = ({ data }) => {
   if (data.type === 'cancel') { if (data.id === activeId) cancelled = true; return; }
-  const task = data.type === 'load' ? load(data.model) : data.type === 'generate' ? generate(data) : Promise.reject(new Error('Unknown model command'));
+  const task = data.type === 'load' ? load() : data.type === 'generate' ? generate(data) : Promise.reject(new Error('Unknown model command'));
   task.catch((error) => self.postMessage({ type: 'error', id: data.id ?? null, message: error.stack || String(error) }));
 };

@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
-import { copyFile, cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,26 +78,23 @@ async function prepareAssets() {
 
 await prepareAssets();
 if (!process.argv.includes('--assets-only')) {
-  const modelRoot = path.join(root, 'assets/models/ppo');
+  const modelRoot = path.join(root, 'assets/models/vision-memory');
   const model = JSON.parse(await readFile(path.join(modelRoot, 'manifest.json'), 'utf8'));
-  if (await sha256(path.join(modelRoot, 'model.onnx')) !== model.onnx_sha256) {
-    throw new Error('PPO model checksum differs from its manifest');
-  }
-  for (const name of ['vision-ppo', 'vision-memory']) {
-    const visionRoot = path.join(root, 'assets/models', name);
-    const vision = JSON.parse(await readFile(path.join(visionRoot, 'manifest.json'), 'utf8'));
-    if (await sha256(path.join(visionRoot, 'vision.onnx')) !== vision.vision_sha256
-        || await sha256(path.join(visionRoot, 'decoder.onnx')) !== vision.decoder_sha256) {
-      throw new Error(`Vision model ${name} checksum differs from its manifest`);
+  for (const name of ['vision', 'decoder']) {
+    if (await sha256(path.join(modelRoot, name + '.onnx')) !== model[name + '_sha256']) {
+      throw new Error(name + '.onnx differs from the release manifest');
     }
   }
+  // An incremental build must retire obsolete weights and worker bundles too.
+  await rm(path.join(output, 'assets/models'), { recursive: true, force: true });
+  await rm(path.join(output, 'built'), { recursive: true, force: true });
   const world = JSON.parse(await readFile(path.join(root, 'assets/world-provenance.json'), 'utf8'));
   if (await sha256(path.join(root, 'world.py')) !== world.files['world.py']) {
     throw new Error('world.py differs from the bundled world source; rebuild assets/world.zip before deploying');
   }
   await build({
     absWorkingDir: root,
-    entryPoints: ['src/app.js', 'src/model-worker.js', 'src/vision-worker.js', 'src/world-worker.js'],
+    entryPoints: ['src/app.js', 'src/vision-worker.js', 'src/world-worker.js'],
     outdir: 'dist/built',
     bundle: true,
     format: 'esm',

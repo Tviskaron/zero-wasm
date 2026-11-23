@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 import { ResponseView } from '../src/response-view.js';
@@ -9,7 +9,6 @@ import { ResponseView } from '../src/response-view.js';
 globalThis.ResizeObserver = class { observe() {} };
 
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-const memoryHtml = await readFile(new URL('../vision-memory.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
   .replace("import { ResponseView } from './response-view.js';", '')
   .replaceAll('import.meta.url', JSON.stringify('https://tviskaron.github.io/zero-wasm/built/app.js'));
@@ -37,34 +36,20 @@ function boot(page = html) {
   return { document, workers, get: (id) => document.getElementById(id) };
 }
 
-test('the vision page loads the vision worker and sends the screen with the achievements line', () => {
+test('older page links redirect to the single demo', async () => {
+  for (const page of ['vision.html', 'text.html', 'vision-memory.html']) {
+    const { document } = parseHTML(await readFile(new URL('../' + page, import.meta.url), 'utf8'));
+    assert.equal(document.querySelector('meta[http-equiv="refresh"]').getAttribute('content'), '0; url=./');
+    assert.equal(document.querySelector('script'), null);
+  }
+});
+
+test('the default page runs the memory student: tagged answers, its memory carried to the next prompt', () => {
   const ui = boot();
   const [world, model] = ui.workers;
   assert.equal(model.url, 'https://tviskaron.github.io/zero-wasm/built/vision-worker.js');
   assert.equal(model.messages[0].type, 'load');
-  assert.equal(model.messages[0].model, 'vision-ppo');
-  const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
-  world.emit({
-    type: 'world', done: false, action: null, reward: 0, frame,
-    text: { long_term_context: 'unused', short_term_context: 'unused' }, history: [], instructions: '', prompt: '',
-    actions: ['Noop', 'Move East'], stats: { seed: 0, steps: 0, inventory: {}, achievements: { place_table: 1, collect_wood: 2, eat_cow: 0 } },
-    sampling: { seed: 1, draws: new Float64Array(1024).fill(0.5) },
-  });
-  model.emit({ type: 'ready', threads: 1, manifest: { label: 'Vision PPO', parameters: 12593280 } });
-  assert.match(ui.get('model-detail').textContent, /Vision PPO, FP32, 12,593,280 parameters/);
-  ui.get('step').onclick();
-  const request = model.messages.find((message) => message.type === 'generate');
-  assert.equal(request.accomplished, 'Accomplished achievements: collect_wood, place_table');
-  assert.equal(request.frame, frame);
-  assert.equal(request.maxNewTokens, 512);
-  assert.equal(request.instructions, undefined);
-});
-
-test('the default page runs the memory student: tagged answers, its memory carried to the next prompt', () => {
-  const ui = boot(memoryHtml);
-  const [world, model] = ui.workers;
-  assert.equal(model.url, 'https://tviskaron.github.io/zero-wasm/built/vision-worker.js');
-  assert.equal(model.messages[0].model, 'vision-memory');
+  assert.equal(ui.get('agent'), null);
   const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
   const state = (action) => ({
     type: 'world', done: false, action, reward: 0, frame,
@@ -83,6 +68,9 @@ test('the default page runs the memory student: tagged answers, its memory carri
     return { request, step };
   };
   const first = decide('<reasoning>\nTable east.\n</reasoning>\n<action>Move East</action>\n<memory>Table: 1 east.\nGoal: pickaxe.</memory>');
+  assert.equal(first.request.frame, frame);
+  assert.equal(first.request.maxNewTokens, 512);
+  assert.equal(first.request.instructions, undefined);
   assert.equal(first.request.accomplished,
     'Accomplished achievements: collect_wood\nYour memory (written by you at the previous step):\n(empty: this is the first step)');
   assert.equal(first.step.action, 'Move East');
@@ -98,7 +86,7 @@ test('the default page runs the memory student: tagged answers, its memory carri
 });
 
 test('the memory student gets back its own memory tokens when the worker reads its answers', () => {
-  const ui = boot(memoryHtml);
+  const ui = boot();
   const [world, model] = ui.workers;
   const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
   const state = (action) => ({
@@ -134,7 +122,7 @@ test('the memory student gets back its own memory tokens when the worker reads i
 });
 
 test('while asleep with energy below the maximum the vision agents are not asked and the world sleeps', () => {
-  const ui = boot(memoryHtml);
+  const ui = boot();
   const [world, model] = ui.workers;
   const frame = { rgba: new ArrayBuffer(256 * 256 * 4), width: 256, height: 256 };
   const state = (energy, text) => ({
@@ -154,13 +142,14 @@ test('while asleep with energy below the maximum the vision agents are not asked
 });
 
 test('vision assets match their manifest and the page uses relative paths', async () => {
-  for (const model of ['vision-ppo', 'vision-memory']) {
-    const manifest = JSON.parse(await readFile(new URL(`../assets/models/${model}/manifest.json`, import.meta.url), 'utf8'));
-    for (const [name, key] of [['vision.onnx', 'vision'], ['decoder.onnx', 'decoder']]) {
-      const bytes = await readFile(new URL(`../assets/models/${model}/${name}`, import.meta.url));
-      assert.equal(bytes.length, manifest[`${key}_bytes`]);
-      assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest[`${key}_sha256`]);
-    }
+  const models = await readdir(new URL('../assets/models/', import.meta.url));
+  assert.deepEqual(models, ['vision-memory']);
+  const directory = new URL('../assets/models/vision-memory/', import.meta.url);
+  const manifest = JSON.parse(await readFile(new URL('manifest.json', directory), 'utf8'));
+  for (const key of ['vision', 'decoder']) {
+    const bytes = await readFile(new URL(key + '.onnx', directory));
+    assert.equal(bytes.length, manifest[`${key}_bytes`]);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest[`${key}_sha256`]);
   }
   const { document } = parseHTML(html);
   assert.equal(document.querySelector('script[type="module"]').getAttribute('src'), './built/app.js');

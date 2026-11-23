@@ -8,7 +8,7 @@ import { ResponseView } from '../src/response-view.js';
 // The DOM harness has no layout engine; browser checks cover resize behavior.
 globalThis.ResizeObserver = class { observe() {} };
 
-const html = await readFile(new URL('../text.html', import.meta.url), 'utf8');
+const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../src/app.js', import.meta.url), 'utf8'))
   .replace("import { ResponseView } from './response-view.js';", '')
   .replaceAll('import.meta.url', JSON.stringify('https://tviskaron.github.io/zero-wasm/built/app.js'));
@@ -29,7 +29,7 @@ function boot() {
   class FakeWorker {
     constructor(url) {
       this.url = url.href;
-      this.kind = this.url.endsWith('/model-worker.js') ? 'model' : 'world';
+      this.kind = this.url.endsWith('/vision-worker.js') ? 'model' : 'world';
       this.messages = [];
       this.terminated = false;
       workers.push(this);
@@ -62,10 +62,10 @@ function boot() {
     sampling: { seed: 424242 + seed * 10000 + steps, draws: new Float64Array(1024).fill(0.4) },
   });
   const models = () => workers.filter((worker) => worker.kind === 'model');
-  const ready = (worker) => worker.emit({ type: 'ready', threads: 1, manifest: { label: 'PPO · iteration 300' } });
+  const ready = (worker) => worker.emit({ type: 'ready', threads: 1, manifest: { label: 'Vision memory PPO' } });
   const result = (worker, extra = {}) => {
     const request = worker.messages.findLast((message) => message.type === 'generate');
-    worker.emit({ type: 'result', id: request.id, text: 'ACTION: Move East', tokens: 4, seconds: 1, cancelled: false, capHit: false, ...extra });
+    worker.emit({ type: 'result', id: request.id, text: '<action>Move East</action><memory>Tree east</memory>', tokens: 4, seconds: 1, cancelled: false, capHit: false, ...extra });
   };
   const steps = () => world.messages.filter((message) => message.type === 'step');
   return { document, window, get, click, world, snapshot, models, ready, result, steps, fetches, workers, timers, timerDelays };
@@ -79,7 +79,6 @@ test('the default PPO loads alongside the world without starting the agent', () 
   assert.equal(ui.world.messages[0].seed, 0);
   const worker = ui.models()[0];
   assert.equal(worker.messages[0].type, 'load');
-  assert.equal(worker.messages[0].model, 'ppo');
   assert.equal(ui.get('world-loading').hidden, false);
   worker.emit({ type: 'download', loaded: 1024, total: 2048 });
   assert.equal(ui.get('model-loading-progress').getAttribute('value'), '0.5');
@@ -156,9 +155,8 @@ test('Run reuses the preloaded model and preserves sampling and step-delay setti
   const state = ui.snapshot();
   ui.world.emit(state);
   const worker = ui.models()[0];
-  assert.equal(worker.url, 'https://tviskaron.github.io/zero-wasm/built/model-worker.js');
+  assert.equal(worker.url, 'https://tviskaron.github.io/zero-wasm/built/vision-worker.js');
   assert.equal(worker.messages[0].type, 'load');
-  assert.equal(worker.messages[0].model, 'ppo');
   ui.ready(worker);
   ui.click('run');
   ui.get('run').onclick(); // An already queued double-click is ignored too.
@@ -168,7 +166,7 @@ test('Run reuses the preloaded model and preserves sampling and step-delay setti
   const request = worker.messages[1];
   assert.equal(request.type, 'generate');
   assert.equal(request.temperature, 1);
-  assert.equal(request.maxNewTokens, 1024);
+  assert.equal(request.maxNewTokens, 512);
   assert.equal(request.samplingSeed, state.sampling.seed);
   assert.equal(request.samplingDraws, state.sampling.draws);
   ui.result(worker);

@@ -1,11 +1,6 @@
 import { ResponseView } from './response-view.js';
 
 const $ = (id) => document.getElementById(id);
-// index.html runs the 12.6M screen-only student, vision-memory.html the 12.6M memory student, text.html the 5M text agent;
-// the game and controls are shared.
-const AGENT = document.body?.dataset?.agent;
-const MEMORY = AGENT === 'vision-memory';
-const VISION = AGENT === 'vision' || MEMORY;
 const MEMORY_HEADER = 'Your memory (written by you at the previous step):';
 const MEMORY_EMPTY = '(empty: this is the first step)';
 const MEMORY_CHARS = 300;
@@ -93,11 +88,7 @@ function renderWorld(next) {
     : `Episode finished after ${next.stats.steps} steps. ${achievements.length}/22 achievements.`;
   $('achievement-count').textContent = `${achievements.length} of 22`;
   $('achievement-list').textContent = achievements.length ? achievements.map(([name]) => name.replaceAll('_', ' ')).join(', ') : 'None yet';
-  $('observation').textContent = MEMORY
-    ? `The model sees only the game screen and this text:\n${studentContext(next.stats.achievements)}`
-    : VISION
-    ? `The model sees only the game screen and this line:\n${accomplishedLine(next.stats.achievements)}`
-    : `${next.text.long_term_context}\n${next.text.short_term_context}`;
+  $('observation').textContent = 'The model sees the game screen and this text:\n' + studentContext(next.stats.achievements);
   if (!$('manual-action').options.length) {
     for (const action of next.actions) {
       const option = document.createElement('option');
@@ -127,7 +118,7 @@ function accomplishedLine(achievements) {
 // The text after the screen: the achievements line, and for the memory student its memory (as in its training data).
 function studentContext(achievements) {
   const line = accomplishedLine(achievements);
-  return MEMORY ? `${line}\n${MEMORY_HEADER}\n${memory || MEMORY_EMPTY}` : line;
+  return `${line}\n${MEMORY_HEADER}\n${memory || MEMORY_EMPTY}`;
 }
 
 // The memory student's tagged answer, read as in training: the first valid <action>, then a <memory> block after it.
@@ -158,7 +149,7 @@ function asleep(state) {
 
 function generate() {
   if (!worldReady || !modelReady || busy || world.done) return;
-  if (VISION && asleep(world)) {
+  if (asleep(world)) {
     busy = true;
     applyingAction = true;
     responseView.reset('Asleep. Crafter ignores every action until energy is full, so the model is not asked.');
@@ -178,14 +169,9 @@ function generate() {
   $('thinking').hidden = false;
   $('thinking').querySelector('span').textContent = 'Processing the observation…';
   $('token-stats').textContent = 'Tokenizing observation…';
-  modelWorker.postMessage(VISION ? {
+  modelWorker.postMessage({
     type: 'generate', id: requestId, frame: world.frame, accomplished: studentContext(world.stats.achievements),
-    actions: world.actions, ...(MEMORY ? { achievements: achievedNames(world.stats.achievements), memoryTokens } : {}),
-    maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
-    samplingSeed: world.sampling.seed, samplingDraws: world.sampling.draws,
-  } : {
-    type: 'generate', id: requestId, instructions: world.instructions,
-    text: world.text, history: world.history || [], prompt: world.prompt,
+    actions: world.actions, achievements: achievedNames(world.stats.achievements), memoryTokens,
     maxNewTokens: Number($('token-limit').value), temperature: Number($('temperature').value),
     samplingSeed: world.sampling.seed, samplingDraws: world.sampling.draws,
   });
@@ -210,7 +196,7 @@ worldWorker.onmessage = ({ data }) => {
     if (autoplay) autoTimer = setTimeout(() => {
       autoTimer = null;
       if (autoplay) generate();
-    }, VISION && asleep(data) ? 0 : Number($('step-delay').value));  // sleep steps need no reading pause
+    }, asleep(data) ? 0 : Number($('step-delay').value));  // sleep steps need no reading pause
   } else if (data.type === 'error') {
     busy = false;
     autoplay = false;
@@ -280,11 +266,11 @@ function loadDefaultModel() {
   $('model-loading-progress').removeAttribute('value');
   controls();
   try {
-    const worker = new Worker(new URL(VISION ? './vision-worker.js' : './model-worker.js', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL('./vision-worker.js', import.meta.url), { type: 'module' });
     modelWorker = worker;
     worker.onmessage = ({ data }) => handleModelMessage(worker, data);
     worker.onerror = (event) => modelFailure(worker, event.message);
-    worker.postMessage({ type: 'load', model: MEMORY ? 'vision-memory' : VISION ? 'vision-ppo' : 'ppo' });
+    worker.postMessage({ type: 'load' });
   } catch (error) {
     modelFailure(modelWorker, error.message);
   }
@@ -350,17 +336,11 @@ function handleModelMessage(worker, data) {
       controls();
       return;
     }
-    let parsed;
-    if (MEMORY) {  // an invalid answer plays Noop and keeps the old memory, as in training
-      // the worker reads the answer's tokens as training does (memory as its own tokens); older manifests: the text
-      const answer = data.answer !== undefined ? data.answer : taggedAnswer(data.text, world.actions);
-      parsed = answer ? answer.action : '';
-      if (answer) {
-        memory = answer.memoryText ?? answer.memory;
-        memoryTokens = answer.memoryText === undefined ? [] : answer.memory;
-      }
-    } else {
-      parsed = data.text.replace(/[^a-zA-Z\s:]/g, '').split('ACTION:').at(-1).trim();
+    const answer = data.answer !== undefined ? data.answer : taggedAnswer(data.text, world.actions);
+    const parsed = answer ? answer.action : '';
+    if (answer) {
+      memory = answer.memoryText ?? answer.memory;
+      memoryTokens = answer.memoryText === undefined ? [] : answer.memory;
     }
     const action = world.actions.includes(parsed) ? parsed : 'Noop';
     $('last-action').textContent = action;
@@ -453,10 +433,6 @@ function requestReset(seed) {
 }
 
 $('reset').onclick = () => requestReset(Number($('seed').value));
-$('agent').onchange = () => {
-  // Each agent has its own page; all load the same game.
-  location.href = { 'vision-memory': './vision-memory.html', vision: './', text: './text.html' }[$('agent').value];
-};
 $('show-stats').onchange = () => {
   $('token-stats').hidden = !$('show-stats').checked;
   $('action-footer').hidden = !$('show-stats').checked;

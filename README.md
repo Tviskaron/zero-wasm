@@ -8,9 +8,9 @@ Press **Step** for one decision or **Run** for continuous play. The response sho
 
 ## Model and evaluation
 
-The released actor has **125,681,664 PPO environment steps**. It averaged **18.94 of 22 distinct achievements per episode** in the native CUDA evaluation. The published evaluation used 128 held-out worlds with three sampling seeds, FP32, temperature 1, a 512-token answer limit and a 2,000-step episode limit. This score comes from the GPU evaluator. Browser runs use a shorter horizon and WebAssembly inference.
+The released actor has **874,037,248 PPO environment steps**. It averaged **19.27 of 22 distinct achievements per episode** in the native CUDA evaluation. We compared the previous release (125,681,664 steps, 19.02), the checkpoint selected by training reward (874,037,248 steps, 19.27) and a recent milestone (916,766,720 steps, 18.62) on the same 128 held-out worlds, each played with three sampling seeds. All three used FP32, temperature 1, a 512-token answer limit and a 2,000-step episode limit. These scores come from the GPU evaluator. Browser runs use a shorter horizon and WebAssembly inference.
 
-The agent was initialized from scratch and trained on 4.40M teacher decisions before PPO. It carries its own memory tokens into the next decision. The [release manifest](assets/models/vision-memory/manifest.json) includes the evaluation results, checkpoint and graph checksums, and FP32 export checks. The build and browser verify both model graphs.
+The agent was initialized from scratch and trained on 4.40M teacher decisions before PPO. It carries its own memory tokens into the next decision. The [release manifest](assets/models/vision-memory/manifest.json) includes the per-seed results, checkpoint and graph checksums, and FP32 export checks. The build and browser verify both model graphs.
 
 ## Run locally
 
